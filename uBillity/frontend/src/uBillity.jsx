@@ -59,6 +59,40 @@ export default function BillApp() {
         fetchBills();
     }, []);
 
+    const getTypeBadgeClass = (type) => {
+        switch (type) {
+            case 'income':
+                return 'bg-success text-white';
+            case 'liability':
+                return 'bg-danger text-white';
+            case 'asset':
+                return 'bg-info text-dark';
+            case 'expense':
+                return 'bg-secondary text-white';
+            default:
+                return 'bg-warning text-dark'; // fallback
+        }
+    };
+
+    const getCategoryBadgeClass = (category) => {
+        switch (category) {
+            case 'miscellaneous':
+                return 'bg-light text-info';
+            case 'utility':
+                return 'bg-light text-primary';
+            case 'healthcare':
+                return 'bg-light text-primary';
+            case 'recreation':
+                return 'bg-light text-success';
+            case 'subscription':
+                return 'bg-light text-danger';
+            case 'loan':
+                return 'bg-light text-danger';
+            default:
+                return 'bg-light text-dark'; // fallback
+        }
+    };
+
     const totalLiability = bills
         .filter(bill => bill.type === 'liability')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
@@ -74,6 +108,8 @@ export default function BillApp() {
     const totalExpense = bills
         .filter(bill => bill.type === 'expense')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
+
+    const netTotal = totalAsset + totalIncome - totalLiability - totalExpense
 
     const handleChange = e => {
         setForm({ ...form, [e.target.name]: e.target.value });
@@ -229,6 +265,18 @@ export default function BillApp() {
                             </div>
                         </div>
 
+                        <div className="row mb-4 g-3">
+
+                            <div className="col-md-12">
+                                <div className="card text-white bg-dark h-100 text-center">
+                                    <div className="card-body d-flex flex-column justify-content-center">
+                                        <h5 className="card-title">Net Total</h5>
+                                        <p className="card-text display-6">${netTotal.toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <hr className="my-5" />
                     </div>
                 </div>
@@ -348,17 +396,21 @@ export default function BillApp() {
                                             <i className="bi bi-trash"></i>
                                         </button>
 
-                                        <h5 className="card-title">
+                                        <h5 className="card-title mb-0">
                                             {bill.name} — ${bill.amount.toFixed(2)}
                                         </h5>
-                                        <p className="card-text">{bill.description}</p>
+
+                                        <h6 className="text-secondary me-2">{bill.due_date}</h6>
+                                        <p className="card-text mt-2">{bill.description}</p>
                                         <div>
-                                            <span className="badge bg-secondary me-2">Due: {bill.due_date}</span>
-                                            <span className="badge bg-warning text-dark me-2">
-                                                Type: {getTypeLabel(bill.type)}
+                                            {/* Type badge */}
+                                            <span className={`badge me-2 ${getTypeBadgeClass(bill.type)}`}>
+                                                {getTypeLabel(bill.type)}
                                             </span>
-                                            <span className="badge bg-info text-dark">
-                                                Category: {getCategoryLabel(bill.category)}
+
+                                            {/* Category badge */}
+                                            <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
+                                                {getCategoryLabel(bill.category)}
                                             </span>
                                         </div>
                                     </div>

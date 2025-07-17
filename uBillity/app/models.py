@@ -20,7 +20,7 @@ class Bill(models.Model):
     name = models.CharField(max_length=30)
     description = models.CharField(max_length=200, blank=True, null=True)
     amount=models.FloatField()
-    type=models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    type=models.CharField(max_length=20, choices=TRANSACTION_TYPES, default='liability')
     category=models.CharField(max_length=20, choices=TRANSACTION_CATEGORIES, blank=True, null=True)
     due_date=models.DateField()
 
