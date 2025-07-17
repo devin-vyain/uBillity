@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import api from './api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
+import axios from 'axios';
 
 const TRANSACTION_TYPES = [
     { value: '', label: '-- Select Type --' },
@@ -42,11 +43,7 @@ export default function BillApp() {
 
     const [bills, setBills] = useState([]);
     const [sortAsc, setSortAsc] = useState(true);
-    const sortedBills = [...bills].sort((a, b) => {
-        const dateA = new Date(a.due_date);
-        const dateB = new Date(b.due_date);
-        return sortAsc ? dateA - dateB : dateB - dateA;
-    });
+
     const [form, setForm] = useState({
         name: '',
         description: '',
@@ -54,7 +51,42 @@ export default function BillApp() {
         type: '',
         category: '',
         due_date: '',
+        reconciled: '',
     });
+
+    const [showReconciled, setShowReconciled] = useState(true);
+    const handleToggleReconciled = async (bill) => {
+        if (!bill || typeof bill !== 'object' || !bill.id) {
+            console.error('Invalid bill object passed:', bill);
+            return;
+        }
+
+        try {
+            const updatedReconciled = !bill.reconciled;
+
+            await axios.patch(`http://localhost:8000/api/bills/${bill.id}/`, {
+                reconciled: updatedReconciled,
+            });
+
+            setBills((prevBills) =>
+                prevBills.map((b) =>
+                    b.id === bill.id ? { ...b, reconciled: updatedReconciled } : b
+                )
+            );
+        } catch (error) {
+            console.error('Failed to update reconciled status:', error);
+        }
+    };
+
+    const sortedBills = [...bills].sort((a, b) => {
+        return sortAsc
+            ? new Date(a.due_date) - new Date(b.due_date)
+            : new Date(b.due_date) - new Date(a.due_date);
+    });
+
+    const displayedBills = showReconciled
+        ? sortedBills
+        : sortedBills.filter(bill => !bill.reconciled);
 
     const fetchBills = async () => {
         const res = await api.get('bills/');
@@ -99,11 +131,11 @@ export default function BillApp() {
         }
     };
 
-    const totalLiability = bills
+    const totalLiability = displayedBills
         .filter(bill => bill.type === 'liability')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
-    const totalIncome = bills
+    const totalIncome = displayedBills
         .filter(bill => bill.type === 'income')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
@@ -111,7 +143,7 @@ export default function BillApp() {
         .filter(bill => bill.type === 'asset')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
-    const totalExpense = bills
+    const totalExpense = displayedBills
         .filter(bill => bill.type === 'expense')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
@@ -174,6 +206,7 @@ export default function BillApp() {
             type: form.type || null,
             category: form.category || null,
             due_date: form.due_date || null,
+            reconciled: false,
         };
 
         try {
@@ -185,6 +218,7 @@ export default function BillApp() {
                 type: '',
                 category: '',
                 due_date: '',
+                reconciled: '',
             });
             fetchBills();
         } catch (error) {
@@ -307,15 +341,20 @@ export default function BillApp() {
 
                             <div className="col-md-6">
                                 <label className="form-label">Amount</label>
-                                <input
-                                    name="amount"
-                                    type="number"
-                                    step="0.01"
-                                    className="form-control"
-                                    value={form.amount}
-                                    onChange={handleChange}
-                                    required
-                                />
+                                <div className="input-group">
+                                    <div className="input-group-prepend">
+                                        <span className="input-group-text">$</span>
+                                    </div>
+                                    <input
+                                        name="amount"
+                                        type="number"
+                                        step="5.0"
+                                        className="form-control"
+                                        value={form.amount}
+                                        onChange={handleChange}
+                                        required
+                                    />
+                                </div>
                             </div>
 
                             <div className="col-12">
@@ -345,8 +384,6 @@ export default function BillApp() {
                                     ))}
                                 </select>
                             </div>
-
-
                             <div className="col-md-4">
                                 <label className="form-label">Category</label>
                                 <select
@@ -362,17 +399,18 @@ export default function BillApp() {
                                     ))}
                                 </select>
                             </div>
-
                             <div className="col-md-4">
                                 <label className="form-label">Due Date</label>
-                                <input
-                                    name="due_date"
-                                    type="date"
-                                    className="form-control"
-                                    value={form.due_date}
-                                    onChange={handleChange}
-                                    required
-                                />
+                                <div className="form-date">
+                                    <input
+                                        type="date"
+                                        name="due_date"
+                                        className="form-control"
+                                        value={form.due_date}
+                                        onChange={handleChange}
+                                        required
+                                    />
+                                </div>
                             </div>
 
                             <div className="col-12">
@@ -387,22 +425,30 @@ export default function BillApp() {
                 {/* Records List */}
                 <div className={`collapsible-section ${!showList ? 'collapsible-hidden' : ''}`}>
                     <>
-                        <h2 className="mb-4 d-flex justify-content-between align-items-center">
+                        <h2 className="mb-4 d-flex justify-content-between">
                             <span>List</span>
-                            <button
-                                className="btn btn-sm btn-outline-secondary"
-                                onClick={() => setSortAsc((prev) => !prev)}
-                                title={`Sort by Due Date (${sortAsc ? 'Desc' : 'Asc'})`}
-                            >
-                                <i className={`bi ${sortAsc ? 'bi-sort-down' : 'bi-sort-up'}`}></i>
-                                <span className="ms-1">Due Date</span>
-                            </button>
+                            <div className="d-flex justify-content-end gap-2">
+                                <button
+                                    className={`btn btn-sm ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
+                                    onClick={() => setShowReconciled(prev => !prev)}
+                                >
+                                    {showReconciled ? 'Reconciled Shown' : 'Reconciled Hidden'}
+                                </button>
+                                <button
+                                    className="btn btn-sm btn-primary"
+                                    onClick={() => setSortAsc((prev) => !prev)}
+                                    title={`Sort by Due Date (${sortAsc ? 'Desc' : 'Asc'})`}
+                                >
+                                    <i className={`bi ${sortAsc ? 'bi-sort-down' : 'bi-sort-up'}`}></i>
+                                    <span className="ms-1">Due Date</span>
+                                </button>
+                            </div>
                         </h2>
                         {/* Bills List (Cards) Section */}
 
                         < div className="row m-4" >
                             {
-                                sortedBills.map((bill) => (
+                                displayedBills.map((bill) => (
                                     <div key={bill.id} className="card mb-3 position-relative">
                                         <div className="card-body">
                                             <button
@@ -429,6 +475,18 @@ export default function BillApp() {
                                                 {/* Category badge */}
                                                 <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
                                                     {getCategoryLabel(bill.category)}
+                                                </span>
+                                                <span className="form-check d-flex justify-content-end">
+                                                    <input
+                                                        className="form-check-input me-2"
+                                                        type="checkbox"
+                                                        id={`reconciled-${bill.id}`}
+                                                        checked={bill.reconciled}
+                                                        onChange={() => handleToggleReconciled(bill)}
+                                                    />
+                                                    <label className="form-check-label" htmlFor={`reconciled-${bill.id}`}>
+                                                        Reconciled
+                                                    </label>
                                                 </span>
                                             </div>
                                         </div>

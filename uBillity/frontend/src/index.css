@@ -13,6 +13,14 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+input[type="date"] {
+  background: transparent;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(100%);
+}
+
 .collapsible-section {
   transition: max-height 0.3s ease, opacity 0.3s ease;
   overflow: hidden;

@@ -20,7 +20,8 @@ class BillSerializer(serializers.ModelSerializer):
         required=False
     )
     due_date = serializers.DateField()
+    reconciled = serializers.BooleanField(default="False")
 
     class Meta:
         model = Bill
-        fields = ['id', 'name', 'description', 'amount', 'type', 'category', 'due_date']
+        fields = ['id', 'name', 'description', 'amount', 'type', 'category', 'due_date', 'reconciled']
