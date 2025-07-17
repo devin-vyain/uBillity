@@ -41,6 +41,12 @@ export default function BillApp() {
     const [toast, setToast] = useState(null);
 
     const [bills, setBills] = useState([]);
+    const [sortAsc, setSortAsc] = useState(true);
+    const sortedBills = [...bills].sort((a, b) => {
+        const dateA = new Date(a.due_date);
+        const dateB = new Date(b.due_date);
+        return sortAsc ? dateA - dateB : dateB - dateA;
+    });
     const [form, setForm] = useState({
         name: '',
         description: '',
@@ -381,43 +387,55 @@ export default function BillApp() {
                 {/* Records List */}
                 <div className={`collapsible-section ${!showList ? 'collapsible-hidden' : ''}`}>
                     <>
-                        <h2 className="mb-4">List</h2>
+                        <h2 className="mb-4 d-flex justify-content-between align-items-center">
+                            <span>List</span>
+                            <button
+                                className="btn btn-sm btn-outline-secondary"
+                                onClick={() => setSortAsc((prev) => !prev)}
+                                title={`Sort by Due Date (${sortAsc ? 'Desc' : 'Asc'})`}
+                            >
+                                <i className={`bi ${sortAsc ? 'bi-sort-down' : 'bi-sort-up'}`}></i>
+                                <span className="ms-1">Due Date</span>
+                            </button>
+                        </h2>
                         {/* Bills List (Cards) Section */}
-                        <div className="row m-4">
-                            {bills.map((bill) => (
-                                <div key={bill.id} className="card mb-3 position-relative">
-                                    <div className="card-body">
-                                        <button
-                                            onClick={() => handleDelete(bill.id)}
-                                            className="btn delete-btn btn-light btn-sm position-absolute top-0 end-0 m-2"
-                                            title="Delete Bill"
-                                            aria-label="Delete Bill"
-                                        >
-                                            <i className="bi bi-trash"></i>
-                                        </button>
 
-                                        <h5 className="card-title mb-0">
-                                            {bill.name} — ${bill.amount.toFixed(2)}
-                                        </h5>
+                        < div className="row m-4" >
+                            {
+                                sortedBills.map((bill) => (
+                                    <div key={bill.id} className="card mb-3 position-relative">
+                                        <div className="card-body">
+                                            <button
+                                                onClick={() => handleDelete(bill.id)}
+                                                className="btn delete-btn btn-light btn-sm position-absolute top-0 end-0 m-2"
+                                                title="Delete Bill"
+                                                aria-label="Delete Bill"
+                                            >
+                                                <i className="bi bi-trash"></i>
+                                            </button>
 
-                                        <h6 className="text-secondary me-2">{bill.due_date}</h6>
-                                        <p className="card-text mt-2">{bill.description}</p>
-                                        <div>
-                                            {/* Type badge */}
-                                            <span className={`badge me-2 ${getTypeBadgeClass(bill.type)}`}>
-                                                {getTypeLabel(bill.type)}
-                                            </span>
+                                            <h5 className="card-title mb-0">
+                                                {bill.name} — ${bill.amount.toFixed(2)}
+                                            </h5>
 
-                                            {/* Category badge */}
-                                            <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
-                                                {getCategoryLabel(bill.category)}
-                                            </span>
+                                            <h6 className="text-secondary me-2">{bill.due_date}</h6>
+                                            <p className="card-text mt-2">{bill.description}</p>
+                                            <div>
+                                                {/* Type badge */}
+                                                <span className={`badge me-2 ${getTypeBadgeClass(bill.type)}`}>
+                                                    {getTypeLabel(bill.type)}
+                                                </span>
+
+                                                {/* Category badge */}
+                                                <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
+                                                    {getCategoryLabel(bill.category)}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))
+                            }
                         </div>
-
                     </>
                 </div>
 
@@ -436,7 +454,7 @@ export default function BillApp() {
                     </div>
                 )}
 
-            </div>
+            </div >
 
         </>
     );
