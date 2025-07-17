@@ -39,14 +39,17 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'app',
     'crispy_forms',
-    'crispy_bootstrap5', 
+    'crispy_bootstrap5',
+    'corsheaders',
     'rest_framework',
 ]
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
 CRISPY_TEMPLATE_PACK = "bootstrap5"
+CORS_ALLOW_ALL_ORIGINS = True  # or use CORS_ALLOWED_ORIGINS = ['http://localhost:5173']
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
