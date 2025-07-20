@@ -3,6 +3,7 @@ import api from './api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
 import axios from 'axios';
+import { format } from 'date-fns';
 
 const TRANSACTION_TYPES = [
     { value: '', label: '-- Select Type --' },
@@ -52,6 +53,7 @@ export default function BillApp() {
         category: '',
         due_date: '',
         reconciled: '',
+        recurrence: '',
     });
 
     const [showReconciled, setShowReconciled] = useState(true);
@@ -87,6 +89,12 @@ export default function BillApp() {
     const displayedBills = showReconciled
         ? sortedBills
         : sortedBills.filter(bill => !bill.reconciled);
+
+
+
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [billToDelete, setBillToDelete] = useState(null);
+    const [deleteSeries, setDeleteSeries] = useState(false);
 
     const fetchBills = async () => {
         const res = await api.get('bills/');
@@ -139,6 +147,8 @@ export default function BillApp() {
         .filter(bill => bill.type === 'income')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
+    //Assets are not currently removed from KPIs when they are reconciled
+    //Assets should be handled outside of this CRUD paradigm, probably
     const totalAsset = bills
         .filter(bill => bill.type === 'asset')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
@@ -153,34 +163,30 @@ export default function BillApp() {
         setForm({ ...form, [e.target.name]: e.target.value });
     };
 
-    const handleDelete = (billId) => {
-        const billToDelete = bills.find(b => b.id === billId);
-        const updatedBills = bills.filter(b => b.id !== billId);
-        setBills(updatedBills);
+    const handleDelete = (bill) => {
+        setBillToDelete(bill);
+        setDeleteSeries(false); // reset every time
+        setShowDeleteModal(true);
+    };
 
-        // Set toast with undo logic
-        setToast({
-            billName: billToDelete.name,
-            billAmt: billToDelete.amount,
-            billDate: billToDelete.due_date,
-            onUndo: () => {
-                clearTimeout(toastTimeout.current);
-                setBills([...updatedBills, billToDelete]);
-                setToast(null);
-            }
-        });
+    const confirmDelete = async () => {
+        if (!billToDelete) return;
 
-        // Schedule actual delete after delay
-        toastTimeout.current = setTimeout(async () => {
-            try {
-                await api.delete(`bills/${billId}/`);
-            } catch (err) {
-                console.error('Delete failed:', err);
-                // Optionally re-add the bill if delete failed
-            } finally {
-                setToast(null);
-            }
-        }, 5000);
+        try {
+            await api.delete(`bills/${billToDelete.id}/?delete_series=${deleteSeries}`);
+
+            setBills((prevBills) =>
+                deleteSeries && billToDelete.recurrence_id
+                    ? prevBills.filter(b => b.recurrence_id !== billToDelete.recurrence_id)
+                    : prevBills.filter(b => b.id !== billToDelete.id)
+            );
+        } catch (err) {
+            console.error("Failed to delete:", err);
+        } finally {
+            setShowDeleteModal(false);
+            setBillToDelete(null);
+            setDeleteSeries(false);
+        }
     };
 
     const handleUndo = () => {
@@ -207,6 +213,7 @@ export default function BillApp() {
             category: form.category || null,
             due_date: form.due_date || null,
             reconciled: false,
+            recurrence: form.recurrence,
         };
 
         try {
@@ -219,6 +226,7 @@ export default function BillApp() {
                 category: '',
                 due_date: '',
                 reconciled: '',
+                recurrence: '',
             });
             fetchBills();
         } catch (error) {
@@ -230,7 +238,7 @@ export default function BillApp() {
 
     return (
         <>
-            {/* Dashboard header and Show/Hide button */}
+            {/* Page menu bar header */}
             <div className="row mb-4">
                 <div className="toggle-toolbar bg-dark">
                     <div className="d-flex justify-content-between align-items-center flex-wrap">
@@ -357,7 +365,7 @@ export default function BillApp() {
                                 </div>
                             </div>
 
-                            <div className="col-12">
+                            <div className="col-8">
                                 <label className="form-label">Description</label>
                                 <input
                                     name="description"
@@ -368,6 +376,19 @@ export default function BillApp() {
                                 />
                             </div>
 
+                            <div className="col-md-4">
+                                <label className="form-label">Due Date</label>
+                                <div className="form-date">
+                                    <input
+                                        type="date"
+                                        name="due_date"
+                                        className="form-control"
+                                        value={form.due_date}
+                                        onChange={handleChange}
+                                        required
+                                    />
+                                </div>
+                            </div>
                             <div className="col-md-4">
                                 <label className="form-label">Type</label>
                                 <select
@@ -400,17 +421,20 @@ export default function BillApp() {
                                 </select>
                             </div>
                             <div className="col-md-4">
-                                <label className="form-label">Due Date</label>
-                                <div className="form-date">
-                                    <input
-                                        type="date"
-                                        name="due_date"
-                                        className="form-control"
-                                        value={form.due_date}
-                                        onChange={handleChange}
-                                        required
-                                    />
-                                </div>
+                                <label className="form-label">Recurrence</label>
+                                <select
+                                    name="recurrence"
+                                    className="form-select"
+                                    value={form.recurrence}
+                                    onChange={handleChange}
+                                >
+                                    <option value="none">One Time</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="biweekly">Biweekly</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="annually">Annually</option>
+                                </select>
                             </div>
 
                             <div className="col-12">
@@ -422,7 +446,7 @@ export default function BillApp() {
                         <hr className="my-5" />
                     </>
                 </div>
-                {/* Records List */}
+                {/* Records List Header and Filters for Card View*/}
                 <div className={`collapsible-section ${!showList ? 'collapsible-hidden' : ''}`}>
                     <>
                         <h2 className="mb-4 d-flex justify-content-between">
@@ -444,15 +468,16 @@ export default function BillApp() {
                                 </button>
                             </div>
                         </h2>
-                        {/* Bills List (Cards) Section */}
+                        {/* Bills List Card View Section */}
 
                         < div className="row m-4" >
                             {
                                 displayedBills.map((bill) => (
                                     <div key={bill.id} className="card mb-3 position-relative">
                                         <div className="card-body">
+                                            {/* Delete button */}
                                             <button
-                                                onClick={() => handleDelete(bill.id)}
+                                                onClick={() => handleDelete(bill)}
                                                 className="btn delete-btn btn-light btn-sm position-absolute top-0 end-0 m-2"
                                                 title="Delete Bill"
                                                 aria-label="Delete Bill"
@@ -464,11 +489,13 @@ export default function BillApp() {
                                                 {bill.name} — ${bill.amount.toFixed(2)}
                                             </h5>
 
-                                            <h6 className="text-secondary me-2">{bill.due_date}</h6>
+                                            <h6 className="text-secondary me-2">{format(new Date(bill.due_date), 'MM/dd/yyyy')}</h6>
                                             <p className="card-text mt-2">{bill.description}</p>
-                                            <div>
+
+                                            {/* Bottom bar of Card View */}
+                                            <div className="d-flex align-items-center flex-wrap gap-2">
                                                 {/* Type badge */}
-                                                <span className={`badge me-2 ${getTypeBadgeClass(bill.type)}`}>
+                                                <span className={`badge ${getTypeBadgeClass(bill.type)}`}>
                                                     {getTypeLabel(bill.type)}
                                                 </span>
 
@@ -476,7 +503,16 @@ export default function BillApp() {
                                                 <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
                                                     {getCategoryLabel(bill.category)}
                                                 </span>
-                                                <span className="form-check d-flex justify-content-end">
+
+                                                {/* Recurrence Badge */}
+                                                {bill.recurrence !== 'none' && (
+                                                    <span className="badge bg-secondary ms-2">
+                                                        {bill.recurrence.charAt(0).toUpperCase() + bill.recurrence.slice(1)}
+                                                    </span>
+                                                )}
+
+                                                {/* Reconciled Checkbox */}
+                                                <span className="form-check d-flex align-items-center ms-auto">
                                                     <input
                                                         className="form-check-input me-2"
                                                         type="checkbox"
@@ -489,6 +525,7 @@ export default function BillApp() {
                                                     </label>
                                                 </span>
                                             </div>
+
                                         </div>
                                     </div>
                                 ))
@@ -496,7 +533,46 @@ export default function BillApp() {
                         </div>
                     </>
                 </div>
+                {/* Delete confirmation modal */}
+                {showDeleteModal && (
+                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                        <div className="modal-dialog" role="document">
+                            <div className="modal-content">
+                                <div className="modal-header bg-primary text-white">
+                                    <h5 className="modal-title">Delete Bill</h5>
+                                    <button type="button" className="btn-close" onClick={() => setShowDeleteModal(false)} />
+                                </div>
+                                <div className="modal-body">
+                                    <p>Are you sure you want to delete:</p>
+                                    <p><strong>{billToDelete?.name}</strong> (${billToDelete?.amount.toFixed(2)}) on {format(new Date(billToDelete?.due_date), 'MM/dd/yyyy')}</p>
 
+                                    {billToDelete?.recurrence_id && (
+                                        <div className="form-check mt-3">
+                                            <input
+                                                type="checkbox"
+                                                className="form-check-input"
+                                                id="deleteSeriesCheckbox"
+                                                checked={deleteSeries}
+                                                onChange={(e) => setDeleteSeries(e.target.checked)}
+                                            />
+                                            <label className="form-check-label" htmlFor="deleteSeriesCheckbox">
+                                                Delete entire series
+                                            </label>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="modal-footer">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>
+                                        Cancel
+                                    </button>
+                                    <button type="button" className="btn btn-danger" onClick={confirmDelete}>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {/* Delete Undo Toast */}
                 {toast && (
                     <div
