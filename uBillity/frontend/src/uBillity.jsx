@@ -3,7 +3,11 @@ import api from './api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
 import axios from 'axios';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+
+
+const debug = true
 
 const TRANSACTION_TYPES = [
     { value: '', label: '-- Select Type --' },
@@ -16,6 +20,7 @@ const TRANSACTION_TYPES = [
 const TRANSACTION_CATEGORIES = [
     { value: '', label: '-- Select Category --' },
     { value: 'healthcare', label: 'Healthcare' },
+    { value: 'investment', label: 'Investment' },
     { value: 'loan', label: 'Loan' },
     { value: 'misc', label: 'Miscellaneous' },
     { value: 'recreation', label: 'Recreation' },
@@ -53,7 +58,7 @@ export default function BillApp() {
         category: '',
         due_date: '',
         reconciled: '',
-        recurrence: '',
+        recurrence: 'none',
     });
 
     const [showReconciled, setShowReconciled] = useState(true);
@@ -80,17 +85,64 @@ export default function BillApp() {
         }
     };
 
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+
+    const formatLocalDate = (date) => {
+        const year = date.getFullYear();
+        const month = `${date.getMonth() + 1}`.padStart(2, '0');
+        const day = `${date.getDate()}`.padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    const setDateRange = (daysAhead) => {
+        const now = new Date();
+        const future = new Date();
+        future.setDate(now.getDate() + daysAhead);
+
+        const todayStr = formatLocalDate(now);
+        const futureStr = formatLocalDate(future);
+
+        setStartDate(todayStr);
+        setEndDate(futureStr);
+    };
+
+    const filterUntilNextIncome = () => {
+        const now = new Date();
+        const todayStr = formatLocalDate(now);
+
+        const upcomingIncome = bills
+            .filter(b => b.type === 'income' && !b.reconciled && new Date(b.due_date) >= new Date())
+            .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0];
+
+        if (upcomingIncome) {
+            setStartDate(todayStr);
+            setEndDate(upcomingIncome.due_date);
+        }
+    };
+
+    const clearFilter = () => {
+        debug && console.log("Clearing date filters!")
+        setStartDate('')
+        setEndDate('')
+    }
+
     const sortedBills = [...bills].sort((a, b) => {
         return sortAsc
             ? new Date(a.due_date) - new Date(b.due_date)
             : new Date(b.due_date) - new Date(a.due_date);
     });
 
+    const filteredByDate = sortedBills.filter(bill => {
+        const billDate = new Date(bill.due_date);
+        const afterStart = !startDate || new Date(startDate) <= billDate;
+        const beforeEnd = !endDate || billDate <= new Date(endDate);
+        return afterStart && beforeEnd;
+    });
+
     const displayedBills = showReconciled
-        ? sortedBills
+        ? filteredByDate
         : sortedBills.filter(bill => !bill.reconciled);
-
-
 
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [billToDelete, setBillToDelete] = useState(null);
@@ -139,25 +191,68 @@ export default function BillApp() {
         }
     };
 
-    const totalLiability = displayedBills
+    const totalLiability = filteredByDate
         .filter(bill => bill.type === 'liability')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
-    const totalIncome = displayedBills
+    const totalIncome = filteredByDate
         .filter(bill => bill.type === 'income')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
     //Assets are not currently removed from KPIs when they are reconciled
     //Assets should be handled outside of this CRUD paradigm, probably
-    const totalAsset = bills
+    const totalAsset = filteredByDate
         .filter(bill => bill.type === 'asset')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
-    const totalExpense = displayedBills
+    const totalExpense = filteredByDate
         .filter(bill => bill.type === 'expense')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
     const netTotal = totalAsset + totalIncome - totalLiability - totalExpense
+
+    // //Daily sums
+    // const netTotalByDate = {};
+    // filteredByDate.forEach(bill => {
+    //     const dateKey = bill.due_date; // assuming ISO string like "2025-08-01"
+    //     const amount = parseFloat(bill.amount);
+
+    //     if (!netTotalByDate[dateKey]) {
+    //         netTotalByDate[dateKey] = 0;
+    //     }
+
+    //     switch (bill.type) {
+    //         case 'asset':
+    //         case 'income':
+    //             netTotalByDate[dateKey] += amount;
+    //             break;
+    //         case 'expense':
+    //         case 'liability':
+    //             netTotalByDate[dateKey] -= amount;
+    //             break;
+    //     }
+    // });
+
+    // //Totals to date map
+    // const netTotalData = Object.entries(netTotalByDate)
+    //     .map(([date, net]) => ({ date, net }))
+    //     .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // const NetTotalChart = ({ data }) => {
+    //     return (
+    //         <div style={{ width: '100%', height: 300 }}>
+    //             <ResponsiveContainer>
+    //                 <LineChart data={data}>
+    //                     <CartesianGrid stroke="#ccc" strokeDasharray="5 5" />
+    //                     <XAxis dataKey="date" />
+    //                     <YAxis />
+    //                     <Tooltip />
+    //                     <Line type="monotone" dataKey="net" stroke="#82ca9d" strokeWidth={2} />
+    //                 </LineChart>
+    //             </ResponsiveContainer>
+    //         </div>
+    //     );
+    // };
 
     const handleChange = e => {
         setForm({ ...form, [e.target.name]: e.target.value });
@@ -213,10 +308,11 @@ export default function BillApp() {
             category: form.category || null,
             due_date: form.due_date || null,
             reconciled: false,
-            recurrence: form.recurrence,
+            recurrence: form.recurrence || null,
         };
 
         try {
+            debug && console.log('Recurrence value submitting:', form.recurrence);
             await api.post('bills/', cleanedForm);
             setForm({
                 name: '',
@@ -282,7 +378,7 @@ export default function BillApp() {
                             <div className="col-md-3">
                                 <div className="card text-white bg-success h-100 text-center">
                                     <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Total Income</h5>
+                                        <h5 className="card-title">Net Income</h5>
                                         <p className="card-text display-6">${totalIncome.toFixed(2)}</p>
                                     </div>
                                 </div>
@@ -290,7 +386,7 @@ export default function BillApp() {
                             <div className="col-md-3">
                                 <div className="card text-white bg-info h-100 text-center">
                                     <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Total Assets</h5>
+                                        <h5 className="card-title">Current Assets</h5>
                                         <p className="card-text display-6">${totalAsset.toFixed(2)}</p>
                                     </div>
                                 </div>
@@ -325,10 +421,12 @@ export default function BillApp() {
                             </div>
                         </div>
 
+                        {/* Line Chart */}
+                        {/* <NetTotalChart data={netTotalData} /> */}
+
                         <hr className="my-5" />
                     </div>
                 </div>
-
                 {/* Add Records Form */}
                 <div className={`collapsible-section ${!showForm ? 'collapsible-hidden' : ''}`}>
                     <>
@@ -423,16 +521,20 @@ export default function BillApp() {
                             <div className="col-md-4">
                                 <label className="form-label">Recurrence</label>
                                 <select
-                                    name="recurrence"
-                                    className="form-select"
                                     value={form.recurrence}
-                                    onChange={handleChange}
+                                    onChange={(e) =>
+                                        setForm({ ...form, recurrence: e.target.value })
+                                    }
+                                    className="form-select"
+                                    required
                                 >
-                                    <option value="none">One Time</option>
+                                    <option value="">-- Select Recurrence --</option>
+                                    <option value="none">One-Time</option>
                                     <option value="daily">Daily</option>
                                     <option value="weekly">Weekly</option>
                                     <option value="biweekly">Biweekly</option>
                                     <option value="monthly">Monthly</option>
+                                    <option value="bimonthly">Bimonthly</option>
                                     <option value="annually">Annually</option>
                                 </select>
                             </div>
@@ -452,6 +554,7 @@ export default function BillApp() {
                         <h2 className="mb-4 d-flex justify-content-between">
                             <span>List</span>
                             <div className="d-flex justify-content-end gap-2">
+
                                 <button
                                     className={`btn btn-sm ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
                                     onClick={() => setShowReconciled(prev => !prev)}
@@ -469,7 +572,36 @@ export default function BillApp() {
                             </div>
                         </h2>
                         {/* Bills List Card View Section */}
+                        <div className="row d-flex m-4 flex-wrap mb-3 bg-light rounded border p-2">
+                            <h5>Date Filters</h5>
+                            <div className="col-md-3">
+                                <label>Start Date</label>
+                                <input
+                                    type="date"
+                                    className="form-control"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                />
+                            </div>
+                            <div className="col-md-3">
+                                <label>End Date</label>
+                                <input
+                                    type="date"
+                                    className="form-control"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                />
+                            </div>
 
+                            {/* Quick Range Buttons */}
+                            <div className="d-flex flex-wrap gap-2 mt-4 col-md-6">
+                                <button className="btn btn-outline-primary" onClick={() => setDateRange(30)}>Next 30 Days</button>
+                                <button className="btn btn-outline-primary" onClick={() => setDateRange(60)}>Next 60 Days</button>
+                                <button className="btn btn-outline-success" onClick={filterUntilNextIncome}>Until Next Income</button>
+                                <button className="btn btn-outline-success" onClick={clearFilter}>Clear</button>
+                            </div>
+
+                        </div>
                         < div className="row m-4" >
                             {
                                 displayedBills.map((bill) => (
@@ -489,7 +621,7 @@ export default function BillApp() {
                                                 {bill.name} — ${bill.amount.toFixed(2)}
                                             </h5>
 
-                                            <h6 className="text-secondary me-2">{format(new Date(bill.due_date), 'MM/dd/yyyy')}</h6>
+                                            <h6 className="text-secondary me-2">{format(parseISO(bill.due_date), 'MM/dd/yyyy')}</h6>
                                             <p className="card-text mt-2">{bill.description}</p>
 
                                             {/* Bottom bar of Card View */}

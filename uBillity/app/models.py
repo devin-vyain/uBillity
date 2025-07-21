@@ -12,6 +12,7 @@ TRANSACTION_CATEGORIES = [
     ('loan', 'Loan'),
     ('misc', 'Miscellaneous'),
     ('recreation', 'Recreation'),
+    ('investment', 'Investment'),
     ('subscription', 'Subscription'),
     ('utility', 'Utility'),
 ]
@@ -22,11 +23,12 @@ RECURRENCE_CHOICES = [
         ('weekly', 'Weekly'),
         ('biweekly', 'Biweekly'),
         ('monthly', 'Monthly'),
+        ('bimonthly', 'Bimonthly'),
         ('annually', 'Annually'),
     ]
 
 class Bill(models.Model):
-    name = models.CharField(max_length=30)
+    name = models.CharField(max_length=50)
     description = models.CharField(max_length=200, blank=True, null=True)
     amount=models.FloatField()
     type=models.CharField(max_length=20, choices=TRANSACTION_TYPES, default='liability')

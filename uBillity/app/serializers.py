@@ -5,7 +5,7 @@ from .models import TRANSACTION_TYPES
 from .models import RECURRENCE_CHOICES
 
 class BillSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(max_length=30)
+    name = serializers.CharField(max_length=50)
     description = serializers.CharField(
         max_length=200, allow_blank=True, allow_null=True, required=False
     )

@@ -7,6 +7,8 @@ from datetime import timedelta
 from dateutil.relativedelta import relativedelta
 import uuid
 
+debug = True
+
 class BillViewSet(viewsets.ModelViewSet):
     queryset = Bill.objects.all()
     serializer_class = BillSerializer
@@ -23,14 +25,25 @@ class BillViewSet(viewsets.ModelViewSet):
                 'weekly': timedelta(weeks=1),
                 'biweekly': timedelta(weeks=2),
                 'monthly': relativedelta(months=1),
+                'bimonthly': relativedelta(months=2),
                 'annually': relativedelta(years=1),
             }
 
+            iteration_map = {
+                'daily': 180,
+                'weekly': 26,
+                'biweekly': 13,
+                'monthly': 6,
+                'bimonthly': 3,
+                'annually': 1,
+            }
+
             delta = freq_map[recurrence]
+            iteration = iteration_map[recurrence]
             start_date = bill.due_date
             future_instances = []
 
-            for i in range(1, 6):  # You can adjust this loop later
+            for i in range(1, iteration):
                 new_due_date = start_date + (delta * i)
                 future_instances.append(Bill(
                     name=bill.name,
@@ -49,13 +62,16 @@ class BillViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         delete_series = request.query_params.get('delete_series', 'false').lower() == 'true'
-        print("Delete series param:", delete_series)
+        if debug:
+            print("Delete series param:", delete_series)
 
         if delete_series and instance.recurrence_id:
-            print(f"Deleting series with recurrence_id {instance.recurrence_id}")
             Bill.objects.filter(recurrence_id=instance.recurrence_id).delete()
+            if debug:
+                print(f"Deleting series with recurrence_id {instance.recurrence_id}")
         else:
-            print(f"Deleting single bill with id {instance.id}")
             instance.delete()
+            if debug:
+                print(f"Deleting single bill with id {instance.id}")
 
         return Response(status=status.HTTP_204_NO_CONTENT)
