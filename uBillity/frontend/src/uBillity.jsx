@@ -4,7 +4,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
 import axios from 'axios';
 import { format, parseISO } from 'date-fns';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 
 
 const debug = true
@@ -190,6 +190,8 @@ export default function BillApp() {
                 return 'bg-light text-dark'; // fallback
         }
     };
+    //Logs for filteredByDate array
+    debug && console.log('filteredByDate:', filteredByDate);
 
     const totalLiability = filteredByDate
         .filter(bill => bill.type === 'liability')
@@ -211,48 +213,107 @@ export default function BillApp() {
 
     const netTotal = totalAsset + totalIncome - totalLiability - totalExpense
 
-    // //Daily sums
-    // const netTotalByDate = {};
-    // filteredByDate.forEach(bill => {
-    //     const dateKey = bill.due_date; // assuming ISO string like "2025-08-01"
-    //     const amount = parseFloat(bill.amount);
+    //Daily sums
+    const netTotalByDate = {};
+    filteredByDate.forEach(bill => {
+        const dateKey = bill.due_date;
+        const amount = parseFloat(bill.amount);
 
-    //     if (!netTotalByDate[dateKey]) {
-    //         netTotalByDate[dateKey] = 0;
-    //     }
+        if (!netTotalByDate[dateKey]) {
+            netTotalByDate[dateKey] = 0;
+        }
 
-    //     switch (bill.type) {
-    //         case 'asset':
-    //         case 'income':
-    //             netTotalByDate[dateKey] += amount;
-    //             break;
-    //         case 'expense':
-    //         case 'liability':
-    //             netTotalByDate[dateKey] -= amount;
-    //             break;
-    //     }
-    // });
+        switch (bill.type) {
+            case 'asset':
+            case 'income':
+                netTotalByDate[dateKey] += amount;
+                break;
+            case 'expense':
+            case 'liability':
+                netTotalByDate[dateKey] -= amount;
+                break;
+        }
+    });
 
     // //Totals to date map
-    // const netTotalData = Object.entries(netTotalByDate)
-    //     .map(([date, net]) => ({ date, net }))
-    //     .sort((a, b) => new Date(a.date) - new Date(b.date));
+    const netTotalData = Object.entries(netTotalByDate)
+        .map(([date, net]) => ({ date, net }))
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // const NetTotalChart = ({ data }) => {
-    //     return (
-    //         <div style={{ width: '100%', height: 300 }}>
-    //             <ResponsiveContainer>
-    //                 <LineChart data={data}>
-    //                     <CartesianGrid stroke="#ccc" strokeDasharray="5 5" />
-    //                     <XAxis dataKey="date" />
-    //                     <YAxis />
-    //                     <Tooltip />
-    //                     <Line type="monotone" dataKey="net" stroke="#82ca9d" strokeWidth={2} />
-    //                 </LineChart>
-    //             </ResponsiveContainer>
-    //         </div>
-    //     );
-    // };
+    const runningNetTotalData = [];
+
+    let cumulativeNet = 0;
+
+    netTotalData.forEach(entry => {
+        cumulativeNet += entry.net;
+        runningNetTotalData.push({
+            date: entry.date,
+            balance: cumulativeNet,
+            delta: entry.net, // daily change
+        });
+    });
+
+    const NetTotalChart = ({ data }) => {
+        return (
+            <div className='d-flex p-2' style={{ width: '100%', height: 300 }}>
+                <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={runningNetTotalData}>
+                        <CartesianGrid stroke="#ccc" />
+                        <XAxis
+                            dataKey="date"
+                            tickFormatter={(dateStr) =>
+                                new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                })
+                            }
+                        />
+                        <YAxis
+                            tickFormatter={(value) =>
+                                new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                    maximumFractionDigits: 0, // optional: remove cents for a cleaner look
+                                }).format(value)
+                            }
+                        />
+                        <Tooltip
+                            content={({ active, payload, label }) => {
+                                if (!active || !payload || !payload.length) return null;
+
+                                const { balance, delta } = payload[0].payload;
+
+                                const date = new Date(label + 'T00:00:00').toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                });
+
+                                const formattedBalance = new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                }).format(balance);
+
+                                const formattedDelta = new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                    signDisplay: 'always', // shows + or - sign
+                                }).format(delta);
+
+                                return (
+                                    <div style={{ background: 'white', border: '1px solid #ccc', padding: 8 }}>
+                                        <div style={{ fontWeight: 'bold', color: '#4caf50' }}>{date}</div>
+                                        <div><b>Balance</b>: {formattedBalance}</div>
+                                        <div><b>Net Delta</b>: {formattedDelta}</div>
+                                    </div>
+                                );
+                            }}
+                        />
+                        <Line type="monotone" dataKey="balance" stroke="#4caf50" strokeWidth={3} dot={true} />
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
+        );
+    };
 
     const handleChange = e => {
         setForm({ ...form, [e.target.name]: e.target.value });
@@ -420,9 +481,8 @@ export default function BillApp() {
                                 </div>
                             </div>
                         </div>
-
                         {/* Line Chart */}
-                        {/* <NetTotalChart data={netTotalData} /> */}
+                        <NetTotalChart data={netTotalData} />
 
                         <hr className="my-5" />
                     </div>
