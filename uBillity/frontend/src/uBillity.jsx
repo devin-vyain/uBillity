@@ -308,7 +308,7 @@ export default function BillApp() {
                                 );
                             }}
                         />
-                        <Line type="monotone" dataKey="balance" stroke="#4caf50" strokeWidth={3} dot={true} />
+                        <Line type="monotone" dataKey="balance" stroke="#4caf50" strokeWidth={3} dot={false} />
                     </LineChart>
                 </ResponsiveContainer>
             </div>
