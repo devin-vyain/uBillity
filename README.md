@@ -26,3 +26,14 @@ cd uBillity\uBillity\frontend
 npm run dev
 ```
 Access the frontend via [http://localhost:5173/](url) (may differ based on localhost configuration)
+
+## Dev Flow
+```
+git checkout -b your-feature-branch
+```
+1. Make code changes
+2. Stage code changes
+3. Commit code changes
+4. Submit pull request from your-feature-branch to main-dev
+5. After merge is approved, main-dev will be tested
+6. After success, pull request from main-dev to main will be submitted
