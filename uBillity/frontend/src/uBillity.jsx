@@ -5,6 +5,7 @@ import './index.css';
 import axios from 'axios';
 import { format, parseISO } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
+import moment from 'moment';
 
 // Move NetTotalChart out of the main component and memoize it so
 // it doesn't re-render on unrelated parent updates (like typing in the form).
@@ -125,7 +126,7 @@ export default function BillApp() {
         recurrence: 'none',
     });
 
-    const [showReconciled, setShowReconciled] = useState(true);
+    const [showReconciled, setShowReconciled] = useState(false);
     const handleToggleReconciled = async (bill) => {
         if (!bill || typeof bill !== 'object' || !bill.id) {
             console.error('Invalid bill object passed:', bill);
@@ -148,6 +149,8 @@ export default function BillApp() {
             console.error('Failed to update reconciled status:', error);
         }
     };
+
+    const now = moment();
 
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -255,7 +258,7 @@ export default function BillApp() {
         }
     };
     //Logs for filteredByDate array
-    debug && console.log('filteredByDate:', filteredByDate);
+    // debug && console.log('filteredByDate:', filteredByDate);
 
     const totalLiability = filteredByDate
         .filter(bill => bill.type === 'liability')
@@ -276,12 +279,17 @@ export default function BillApp() {
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
     const netTotal = totalAsset + totalIncome - totalLiability - totalExpense
-    // Compute running net total data, memoized so it only recomputes
-    // when the filtered bills actually change (typing in the form won't affect this).
+    // Compute running net total data for the chart.
+    // IMPORTANT: Always exclude reconciled bills from the forecast/chart.
+    // Memoized so it only recomputes when the filtered bills actually change.
     const runningNetTotalData = useMemo(() => {
         const netTotalByDate = {};
 
-        filteredByDate.forEach(bill => {
+        // Exclude reconciled bills from chart calculations so the forecast
+        // never includes items the user has reconciled.
+        const billsForChart = filteredByDate.filter(b => !b.reconciled);
+
+        billsForChart.forEach(bill => {
             const dateKey = bill.due_date;
             const amount = parseFloat(bill.amount) || 0;
 
@@ -319,6 +327,128 @@ export default function BillApp() {
     const handleChange = e => {
         setForm({ ...form, [e.target.name]: e.target.value });
     };
+
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editForm, setEditForm] = useState({});
+    const [editSeries, setEditSeries] = useState(false);
+
+    const handleEdit = (bill) => {
+        setEditForm(bill);
+        setShowEditModal(true);
+    };
+
+    const handleUpdate = async (e) => {
+        e?.preventDefault();
+        try {
+            const url = editSeries
+                ? `bills/series/${editForm.recurrence_id}/`
+                : `bills/${editForm.id}/`;
+
+            await api.put(url, editForm);
+            fetchBills();
+            setShowEditModal(false);
+        } catch (error) {
+            console.error('Failed to update bill:', error.response?.data || error.message);
+        }
+    };
+
+    const EditForm = ({ editForm, setEditForm, editSeries, setEditSeries, handleUpdate }) => {
+        const amountRef = useRef(null);
+
+        useEffect(() => {
+            if (amountRef.current) {
+                amountRef.current.focus();
+            }
+        }, []); // Focus when form mounts (i.e. modal opens)
+
+        return (
+            <form onSubmit={handleUpdate}>
+                {/* Name */}
+                <div className="mb-3">
+                    <label htmlFor="editName" className="form-label">Name</label>
+                    <input
+                        type="text"
+                        className="form-control"
+                        id="editName"
+                        value={editForm.name || ''}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    />
+                </div>
+
+                {/* Description */}
+                <div className="mb-3">
+                    <label htmlFor="editDescription" className="form-label">Description</label>
+                    <input
+                        type="text"
+                        className="form-control"
+                        id="editDescription"
+                        value={editForm.description || ''}
+                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    />
+                </div>
+
+                {/* Amount (auto-focus target) */}
+                <div className="mb-3">
+                    <label htmlFor="editAmount" className="form-label">Amount</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        className="form-control"
+                        id="editAmount"
+                        ref={amountRef}
+                        value={editForm.amount || ''}
+                        onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                    />
+                </div>
+
+                {/* Type */}
+                <div className="mb-3">
+                    <label htmlFor="editType" className="form-label">Type</label>
+                    <select
+                        className="form-select"
+                        id="editType"
+                        value={editForm.type || ''}
+                        onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
+                    >
+                        <option value="">Select type</option>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                        <option value="asset">Asset</option>
+                        <option value="liability">Liability</option>
+                    </select>
+                </div>
+
+                {/* Due Date */}
+                <div className="mb-3">
+                    <label htmlFor="editDueDate" className="form-label">Due Date</label>
+                    <input
+                        type="date"
+                        className="form-control"
+                        id="editDueDate"
+                        value={editForm.due_date || ''}
+                        onChange={(e) => setEditForm({ ...editForm, due_date: e.target.value })}
+                    />
+                </div>
+
+                {/* Recurrence (series checkbox) */}
+                {editForm.recurrence_id && (
+                    <div className="form-check mt-3">
+                        <input
+                            type="checkbox"
+                            className="form-check-input"
+                            id="editSeriesCheckbox"
+                            checked={editSeries}
+                            onChange={(e) => setEditSeries(e.target.checked)}
+                        />
+                        <label className="form-check-label" htmlFor="editSeriesCheckbox">
+                            Apply changes to entire series
+                        </label>
+                    </div>
+                )}
+            </form>
+        );
+    };
+
 
     const handleDelete = (bill) => {
         setBillToDelete(bill);
@@ -620,7 +750,7 @@ export default function BillApp() {
                                     className={`btn btn-sm ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
                                     onClick={() => setShowReconciled(prev => !prev)}
                                 >
-                                    {showReconciled ? 'Reconciled Shown' : 'Reconciled Hidden'}
+                                    {showReconciled ? 'Hide Reconciled' : 'Show Reconciled'}
                                 </button>
                                 <button
                                     className="btn btn-sm btn-primary"
@@ -666,17 +796,31 @@ export default function BillApp() {
                         < div className="row m-4" >
                             {
                                 displayedBills.map((bill) => (
-                                    <div key={bill.id} className="card mb-3 position-relative">
-                                        <div className="card-body">
-                                            {/* Delete button */}
-                                            <button
-                                                onClick={() => handleDelete(bill)}
-                                                className="btn delete-btn btn-light btn-sm position-absolute top-0 end-0 m-2"
-                                                title="Delete Bill"
-                                                aria-label="Delete Bill"
-                                            >
-                                                <i className="bi bi-trash"></i>
-                                            </button>
+                                    <div key={bill.id} className={now.isAfter(bill.due_date) ? "card mb-3 position-relative overdue" : "card mb-3 position-relative"}>
+                                        <div className="card-view">
+                                            <div className="position-absolute top-0 end-0 m-2 d-flex gap-2">
+                                                {/* Edit button */}
+                                                <button
+                                                    onClick={() => handleEdit(bill)}
+                                                    className="btn btn-light btn-sm"
+                                                    title="Edit Bill"
+                                                    aria-label="Edit Bill"
+                                                >
+                                                    <i className="bi bi-pencil"></i>
+                                                </button>
+
+                                                {/* Delete button */}
+                                                <button
+                                                    onClick={() => handleDelete(bill)}
+                                                    className="btn delete-btn btn-light btn-sm"
+                                                    title="Delete Bill"
+                                                    aria-label="Delete Bill"
+                                                >
+                                                    <i className="bi bi-trash"></i>
+                                                </button>
+
+                                            </div>
+
 
                                             <h5 className="card-title mb-0">
                                                 {bill.name} — ${bill.amount.toFixed(2)}
@@ -766,6 +910,53 @@ export default function BillApp() {
                         </div>
                     </div>
                 )}
+                {/* Edit Modal */}
+
+                {showEditModal && (
+                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                        <div className="modal-dialog" role="document">
+                            <div className="modal-content">
+                                <div className="modal-header bg-primary text-white">
+                                    <h5 className="modal-title">Edit Bill</h5>
+                                    <button
+                                        type="button"
+                                        className="btn-close"
+                                        onClick={() => setShowEditModal(false)}
+                                    />
+                                </div>
+
+                                <div className="modal-body">
+                                    <EditForm
+                                        editForm={editForm}
+                                        setEditForm={setEditForm}
+                                        editSeries={editSeries}
+                                        setEditSeries={setEditSeries}
+                                        handleUpdate={handleUpdate}
+                                    />
+                                </div>
+
+                                <div className="modal-footer">
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => setShowEditModal(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={handleUpdate}
+                                    >
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+
                 {/* Delete Undo Toast */}
                 {toast && (
                     <div
