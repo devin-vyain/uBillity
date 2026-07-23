@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import api from './api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
@@ -303,6 +304,7 @@ export default function BillApp() {
     });
 
     const [showReconciled, setShowReconciled] = useState(false);
+    const [showReconciled, setShowReconciled] = useState(false);
     const handleToggleReconciled = async (bill) => {
         if (!bill || typeof bill !== 'object' || !bill.id) {
             console.error('Invalid bill object passed:', bill);
@@ -325,6 +327,8 @@ export default function BillApp() {
             console.error('Failed to update reconciled status:', error);
         }
     };
+
+    const now = moment();
 
     const now = moment();
 
@@ -439,6 +443,7 @@ export default function BillApp() {
         }
     };
     //Logs for filteredByDate array
+    // debug && console.log('filteredByDate:', filteredByDate);
     // debug && console.log('filteredByDate:', filteredByDate);
 
     const totalLiability = filteredByDate
@@ -714,6 +719,7 @@ export default function BillApp() {
                         </div>
                         {/* Line Chart */}
                         <NetTotalChart data={runningNetTotalData} />
+                        <NetTotalChart data={runningNetTotalData} />
 
                         <hr className="my-5" />
                     </div>
@@ -868,6 +874,7 @@ export default function BillApp() {
                                     onClick={() => setShowReconciled(prev => !prev)}
                                 >
                                     {showReconciled ? 'Hide Reconciled' : 'Show Reconciled'}
+                                    {showReconciled ? 'Hide Reconciled' : 'Show Reconciled'}
                                 </button>
                                 <button
                                     className="btn btn-sm btn-primary"
@@ -968,159 +975,231 @@ export default function BillApp() {
 
                                             </div>
 
+                                            <div key={bill.id} className={now.isAfter(bill.due_date) ? "card mb-3 position-relative overdue" : "card mb-3 position-relative"}>
+                                                <div className="card-view">
+                                                    <div className="position-absolute top-0 end-0 m-2 d-flex gap-2">
+                                                        {/* Edit button */}
+                                                        <button
+                                                            onClick={() => handleEdit(bill)}
+                                                            className="btn btn-light btn-sm"
+                                                            title="Edit Bill"
+                                                            aria-label="Edit Bill"
+                                                        >
+                                                            <i className="bi bi-pencil"></i>
+                                                        </button>
 
-                                            <h5 className="card-title mb-0">
-                                                {bill.name} — ${bill.amount.toFixed(2)}
-                                            </h5>
+                                                        {/* Delete button */}
+                                                        <button
+                                                            onClick={() => handleDelete(bill)}
+                                                            className="btn delete-btn btn-light btn-sm"
+                                                            title="Delete Bill"
+                                                            aria-label="Delete Bill"
+                                                        >
+                                                            <i className="bi bi-trash"></i>
+                                                        </button>
 
-                                            <h6 className="text-secondary me-2">{format(parseISO(bill.due_date), 'MM/dd/yyyy')}</h6>
-                                            <p className="card-text mt-2">{bill.description}</p>
+                                                    </div>
 
-                                            {/* Bottom bar of Card View */}
-                                            <div className="d-flex align-items-center flex-wrap gap-2">
-                                                {/* Type badge */}
-                                                <span className={`badge ${getTypeBadgeClass(bill.type)}`}>
-                                                    {getTypeLabel(bill.type)}
-                                                </span>
 
-                                                {/* Category badge */}
-                                                <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
-                                                    {getCategoryLabel(bill.category)}
-                                                </span>
+                                                    <h5 className="card-title mb-0">
+                                                        {bill.name} — ${bill.amount.toFixed(2)}
+                                                    </h5>
 
-                                                {/* Recurrence Badge */}
-                                                {bill.recurrence !== 'none' && (
-                                                    <span className="badge bg-secondary ms-2">
-                                                        {bill.recurrence.charAt(0).toUpperCase() + bill.recurrence.slice(1)}
-                                                    </span>
-                                                )}
+                                                    <h6 className="text-secondary me-2">{format(parseISO(bill.due_date), 'MM/dd/yyyy')}</h6>
+                                                    <p className="card-text mt-2">{bill.description}</p>
 
-                                                {/* Reconciled Checkbox */}
-                                                <span className="form-check d-flex align-items-center ms-auto">
-                                                    <input
-                                                        className="form-check-input me-2"
-                                                        type="checkbox"
-                                                        id={`reconciled-${bill.id}`}
-                                                        checked={bill.reconciled}
-                                                        onChange={() => handleToggleReconciled(bill)}
-                                                    />
-                                                    <label className="form-check-label" htmlFor={`reconciled-${bill.id}`}>
-                                                        Reconciled
-                                                    </label>
-                                                </span>
+                                                    {/* Bottom bar of Card View */}
+                                                    <div className="d-flex align-items-center flex-wrap gap-2">
+                                                        {/* Type badge */}
+                                                        <span className={`badge ${getTypeBadgeClass(bill.type)}`}>
+                                                            {getTypeLabel(bill.type)}
+                                                        </span>
+
+                                                        {/* Category badge */}
+                                                        <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
+                                                            {getCategoryLabel(bill.category)}
+                                                        </span>
+
+                                                        {/* Recurrence Badge */}
+                                                        {bill.recurrence !== 'none' && (
+                                                            <span className="badge bg-secondary ms-2">
+                                                                {bill.recurrence.charAt(0).toUpperCase() + bill.recurrence.slice(1)}
+                                                            </span>
+                                                        )}
+
+                                                        {/* Reconciled Checkbox */}
+                                                        <span className="form-check d-flex align-items-center ms-auto">
+                                                            <input
+                                                                className="form-check-input me-2"
+                                                                type="checkbox"
+                                                                id={`reconciled-${bill.id}`}
+                                                                checked={bill.reconciled}
+                                                                onChange={() => handleToggleReconciled(bill)}
+                                                            />
+                                                            <label className="form-check-label" htmlFor={`reconciled-${bill.id}`}>
+                                                                Reconciled
+                                                            </label>
+                                                        </span>
+                                                    </div>
+
+                                                </div>
                                             </div>
+                                            ))
+                            }
+                                        </div>
+                                    </>
+                </div>
+                        {/* Delete confirmation modal */}
+                        {showDeleteModal && (
+                            <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                                <div className="modal-dialog" role="document">
+                                    <div className="modal-content">
+                                        <div className="modal-header bg-primary text-white">
+                                            <h5 className="modal-title">Delete Bill</h5>
+                                            <button type="button" className="btn-close" onClick={() => setShowDeleteModal(false)} />
+                                        </div>
+                                        <div className="modal-body">
+                                            <p>Are you sure you want to delete:</p>
+                                            <p><strong>{billToDelete?.name}</strong> (${billToDelete?.amount.toFixed(2)}) on {format(new Date(billToDelete?.due_date), 'MM/dd/yyyy')}</p>
 
+                                            {billToDelete?.recurrence_id && (
+                                                <div className="form-check mt-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="form-check-input"
+                                                        id="deleteSeriesCheckbox"
+                                                        checked={deleteSeries}
+                                                        onChange={(e) => setDeleteSeries(e.target.checked)}
+                                                    />
+                                                    <label className="form-check-label" htmlFor="deleteSeriesCheckbox">
+                                                        Delete entire series
+                                                    </label>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="modal-footer">
+                                            <button type="button" className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>
+                                                Cancel
+                                            </button>
+                                            <button type="button" className="btn btn-danger" onClick={confirmDelete}>
+                                                Delete
+                                            </button>
                                         </div>
                                     </div>
-                                ))
-                            }
-                        </div>
-                    </>
-                </div>
-                {/* Delete confirmation modal */}
-                {showDeleteModal && (
-                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
-                        <div className="modal-dialog" role="document">
-                            <div className="modal-content">
-                                <div className="modal-header bg-primary text-white">
-                                    <h5 className="modal-title">Delete Bill</h5>
-                                    <button type="button" className="btn-close" onClick={() => setShowDeleteModal(false)} />
                                 </div>
-                                <div className="modal-body">
-                                    <p>Are you sure you want to delete:</p>
-                                    <p><strong>{billToDelete?.name}</strong> (${billToDelete?.amount.toFixed(2)}) on {format(new Date(billToDelete?.due_date), 'MM/dd/yyyy')}</p>
+                            </div>
+                        )}
+                        {/* Edit Modal */}
 
-                                    {billToDelete?.recurrence_id && (
-                                        <div className="form-check mt-3">
-                                            <input
-                                                type="checkbox"
-                                                className="form-check-input"
-                                                id="deleteSeriesCheckbox"
-                                                checked={deleteSeries}
-                                                onChange={(e) => setDeleteSeries(e.target.checked)}
+                        {showEditModal && (
+                            <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                                <div className="modal-dialog" role="document">
+                                    <div className="modal-content">
+                                        <div className="modal-header bg-primary text-white">
+                                            <h5 className="modal-title">Edit Bill</h5>
+                                            <button
+                                                type="button"
+                                                className="btn-close"
+                                                onClick={() => setShowEditModal(false)}
                                             />
-                                            <label className="form-check-label" htmlFor="deleteSeriesCheckbox">
-                                                Delete entire series
-                                            </label>
                                         </div>
-                                    )}
+
+                                        <div className="modal-body">
+                                            <EditForm
+                                                editForm={editForm}
+                                                setEditForm={setEditForm}
+                                                editSeries={editSeries}
+                                                setEditSeries={setEditSeries}
+                                                handleUpdate={handleUpdate}
+                                            />
+                                        </div>
+
+                                        <div className="modal-footer">
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary"
+                                                onClick={() => setShowEditModal(false)}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary"
+                                                onClick={handleUpdate}
+                                            >
+                                                Save Changes
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="modal-footer">
-                                    <button type="button" className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>
-                                        Cancel
-                                    </button>
-                                    <button type="button" className="btn btn-danger" onClick={confirmDelete}>
-                                        Delete
+                            </div>
+                        )}
+
+
+                        {/* Edit Modal */}
+
+                        {showEditModal && (
+                            <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                                <div className="modal-dialog" role="document">
+                                    <div className="modal-content">
+                                        <div className="modal-header bg-primary text-white">
+                                            <h5 className="modal-title">Edit Bill</h5>
+                                            <button
+                                                type="button"
+                                                className="btn-close"
+                                                onClick={() => setShowEditModal(false)}
+                                            />
+                                        </div>
+
+                                        <div className="modal-body">
+                                            <EditForm
+                                                editForm={editForm}
+                                                setEditForm={setEditForm}
+                                                editSeries={editSeries}
+                                                setEditSeries={setEditSeries}
+                                                handleUpdate={handleUpdate}
+                                            />
+                                        </div>
+
+                                        <div className="modal-footer">
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary"
+                                                onClick={() => setShowEditModal(false)}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary"
+                                                onClick={handleUpdate}
+                                            >
+                                                Save Changes
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+
+                        {/* Delete Undo Toast */}
+                        {toast && (
+                            <div
+                                className="toast show position-fixed bottom-0 end-0 m-4 p-3 bg-light border shadow-sm"
+                                style={{ minWidth: '200px', zIndex: 9999 }}
+                            >
+                                <div className="d-flex justify-content-between align-items-center">
+                                    <div><strong>{toast.billName}</strong> (${toast.billAmt.toFixed(2)}) was deleted...</div>
+                                    <button className="btn btn-link btn-sm" onClick={toast.onUndo}>
+                                        Undo
                                     </button>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                )}
-                {/* Edit Modal */}
+                        )}
 
-                {showEditModal && (
-                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
-                        <div className="modal-dialog" role="document">
-                            <div className="modal-content">
-                                <div className="modal-header bg-primary text-white">
-                                    <h5 className="modal-title">Edit Bill</h5>
-                                    <button
-                                        type="button"
-                                        className="btn-close"
-                                        onClick={() => setShowEditModal(false)}
-                                    />
-                                </div>
+                    </div >
 
-                                <div className="modal-body">
-                                    <EditForm
-                                        editForm={editForm}
-                                        setEditForm={setEditForm}
-                                        editSeries={editSeries}
-                                        setEditSeries={setEditSeries}
-                                        handleUpdate={handleUpdate}
-                                    />
-                                </div>
-
-                                <div className="modal-footer">
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        onClick={() => setShowEditModal(false)}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-primary"
-                                        onClick={handleUpdate}
-                                    >
-                                        Save Changes
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-
-                {/* Delete Undo Toast */}
-                {toast && (
-                    <div
-                        className="toast show position-fixed bottom-0 end-0 m-4 p-3 bg-light border shadow-sm"
-                        style={{ minWidth: '200px', zIndex: 9999 }}
-                    >
-                        <div className="d-flex justify-content-between align-items-center">
-                            <div><strong>{toast.billName}</strong> (${toast.billAmt.toFixed(2)}) was deleted...</div>
-                            <button className="btn btn-link btn-sm" onClick={toast.onUndo}>
-                                Undo
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-            </div >
-
-        </>
-    );
+                </>
+                );
 }
