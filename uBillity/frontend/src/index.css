@@ -132,3 +132,15 @@ button:focus-visible {
 .card.overdue .card-body {
   background: rgba(220, 53, 69, 0.02);
 }
+
+/* Reconciled card highlighting */
+.card.reconciled {
+  border: 2px solid #4caf50;
+  background-color: #f1f1f1;
+  /* Bootstrap danger red */
+  box-shadow: 0 0 0 4px rgba(220, 53, 69, 0.06);
+}
+
+.card.reconciled .card-body {
+  background: rgba(186, 241, 142, 0.02);
+}
