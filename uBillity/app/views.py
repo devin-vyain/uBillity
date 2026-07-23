@@ -1,6 +1,7 @@
-from rest_framework import viewsets
+from django.db import transaction
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework import status
 from .models import Bill
 from .serializers import BillSerializer
 from datetime import timedelta
@@ -12,6 +13,38 @@ debug = True
 class BillViewSet(viewsets.ModelViewSet):
     queryset = Bill.objects.all()
     serializer_class = BillSerializer
+
+    @action(
+        detail=False,
+        methods=['put'],
+        url_path=r'series/(?P<recurrence_id>[^/.]+)',
+    )
+    @transaction.atomic
+    def update_series(self, request, recurrence_id=None):
+        bills = list(self.get_queryset().filter(recurrence_id=recurrence_id))
+        if not bills:
+            return Response(
+                {'detail': 'Series not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        # Never bulk-apply due_date across a series — each bill keeps its own.
+        series_data = {k: v for k, v in request.data.items() if k != 'due_date'}
+
+        # Validate every bill before saving any of them so a bad payload
+        # cannot leave the series partially updated.
+        serializers = [
+            self.get_serializer(bill, data=series_data, partial=True)
+            for bill in bills
+        ]
+        for bill_serializer in serializers:
+            bill_serializer.is_valid(raise_exception=True)
+        for bill_serializer in serializers:
+            bill_serializer.save()
+
+        return Response(
+            self.get_serializer(bills, many=True).data,
+            status=status.HTTP_200_OK,
+        )
 
     def perform_create(self, serializer):
         recurrence = serializer.validated_data.get('recurrence')
