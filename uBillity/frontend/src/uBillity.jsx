@@ -943,7 +943,7 @@ export default function BillApp() {
                         < div className="row m-4" >
                             {
                                 displayedBills.map((bill) => (
-                                    <div key={bill.id} className={now.isAfter(bill.due_date) ? "card mb-3 position-relative overdue" : "card mb-3 position-relative"}>
+                                    <div key={bill.id} className={now.isAfter(bill.due_date) && bill.type != 'asset' && bill.reconciled == false ? "card mb-3 position-relative overdue" : bill.reconciled == true ? "card mb-3 position-relative reconciled" : "card mb-3 position-relative"}>
                                         <div className="card-view">
                                             <div className="position-absolute top-0 end-0 m-2 d-flex gap-2">
                                                 {/* Edit button */}
