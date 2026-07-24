@@ -1,6 +1,7 @@
 from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Bill
 from .serializers import BillSerializer
@@ -11,46 +12,22 @@ import uuid
 debug = True
 
 class BillViewSet(viewsets.ModelViewSet):
-    queryset = Bill.objects.all()
     serializer_class = BillSerializer
+    permission_classes = [IsAuthenticated]
 
-    @action(
-        detail=False,
-        methods=['put'],
-        url_path=r'series/(?P<recurrence_id>[^/.]+)',
-    )
-    @transaction.atomic
-    def update_series(self, request, recurrence_id=None):
-        bills = list(self.get_queryset().filter(recurrence_id=recurrence_id))
-        if not bills:
-            return Response(
-                {'detail': 'Series not found.'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        # Never bulk-apply due_date across a series — each bill keeps its own.
-        series_data = {k: v for k, v in request.data.items() if k != 'due_date'}
-
-        # Validate every bill before saving any of them so a bad payload
-        # cannot leave the series partially updated.
-        serializers = [
-            self.get_serializer(bill, data=series_data, partial=True)
-            for bill in bills
-        ]
-        for bill_serializer in serializers:
-            bill_serializer.is_valid(raise_exception=True)
-        for bill_serializer in serializers:
-            bill_serializer.save()
-
-        return Response(
-            self.get_serializer(bills, many=True).data,
-            status=status.HTTP_200_OK,
-        )
+    def get_queryset(self):
+        return Bill.objects.visible_to(self.request.user)
 
     def perform_create(self, serializer):
+        household = self.request.user.households.first()
         recurrence = serializer.validated_data.get('recurrence')
         recurrence_id = uuid.uuid4() if recurrence != 'none' else None
 
-        bill = serializer.save(recurrence_id=recurrence_id)
+        bill = serializer.save(
+            recurrence_id=recurrence_id,
+            household=household,
+            created_by=self.request.user,
+        )
 
         if recurrence != 'none':
             freq_map = {
@@ -61,7 +38,6 @@ class BillViewSet(viewsets.ModelViewSet):
                 'bimonthly': relativedelta(months=2),
                 'annually': relativedelta(years=1),
             }
-
             iteration_map = {
                 'daily': 180,
                 'weekly': 26,
@@ -88,9 +64,41 @@ class BillViewSet(viewsets.ModelViewSet):
                     reconciled=False,
                     recurrence=recurrence,
                     recurrence_id=recurrence_id,
+                    household=bill.household,
+                    created_by=bill.created_by,
                 ))
 
             Bill.objects.bulk_create(future_instances)
+
+    @action(
+        detail=False,
+        methods=['put'],
+        url_path=r'series/(?P<recurrence_id>[^/.]+)',
+    )
+    @transaction.atomic
+    def update_series(self, request, recurrence_id=None):
+        bills = list(self.get_queryset().filter(recurrence_id=recurrence_id))
+        if not bills:
+            return Response(
+                {'detail': 'Series not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        series_data = {k: v for k, v in request.data.items() if k != 'due_date'}
+
+        serializers = [
+            self.get_serializer(bill, data=series_data, partial=True)
+            for bill in bills
+        ]
+        for bill_serializer in serializers:
+            bill_serializer.is_valid(raise_exception=True)
+        for bill_serializer in serializers:
+            bill_serializer.save()
+
+        return Response(
+            self.get_serializer(bills, many=True).data,
+            status=status.HTTP_200_OK,
+        )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -99,12 +107,8 @@ class BillViewSet(viewsets.ModelViewSet):
             print("Delete series param:", delete_series)
 
         if delete_series and instance.recurrence_id:
-            Bill.objects.filter(recurrence_id=instance.recurrence_id).delete()
-            if debug:
-                print(f"Deleting series with recurrence_id {instance.recurrence_id}")
+            self.get_queryset().filter(recurrence_id=instance.recurrence_id).delete()
         else:
             instance.delete()
-            if debug:
-                print(f"Deleting single bill with id {instance.id}")
 
         return Response(status=status.HTTP_204_NO_CONTENT)

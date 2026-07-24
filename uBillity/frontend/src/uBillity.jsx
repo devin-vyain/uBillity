@@ -6,6 +6,8 @@ import axios from 'axios';
 import { format, parseISO } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import moment from 'moment';
+import { useAuth } from './context/AuthContext';
+import LoginPage from './LoginPage';
 
 //Add a comment to create a new commit so we can overwrite main-dev in Github ;o
 
@@ -282,6 +284,11 @@ const getCategoryLabel = (value) => {
 };
 
 export default function BillApp() {
+    const { token, logout } = useAuth();
+
+    if (!token) {
+        return <LoginPage />;
+    }
     const [showKPIs, setShowKPIs] = useState(true);
     const [showForm, setShowForm] = useState(true);
     const [showList, setShowList] = useState(true);
@@ -657,6 +664,13 @@ export default function BillApp() {
                                 onClick={() => setShowList(prev => !prev)}
                             >
                                 <i className="bi bi-card-list"></i>
+                            </button>
+                            <button
+                                title="Log out"
+                                className="btn btn-sm btn-outline-light"
+                                onClick={logout}
+                            >
+                                <i className="bi bi-box-arrow-right"></i>
                             </button>
                         </div>
                     </div>
