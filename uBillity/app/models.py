@@ -26,12 +26,40 @@ RECURRENCE_CHOICES = [
         ('monthly', 'Monthly'),
         ('bimonthly', 'Bimonthly'),
         ('annually', 'Annually'),
-    ]
+]
 
 class Household(models.Model):
     name = models.CharField(max_length=100)
-    members = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='households')
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='HouseholdMembership',
+        related_name='households',
+    )
 
+    def __str__(self):
+        return self.name
+
+
+class HouseholdMembership(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='household_memberships',
+    )
+    household = models.ForeignKey(
+        Household,
+        on_delete=models.CASCADE,
+        related_name='memberships',
+    )
+    is_default = models.BooleanField(default=False)
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'household')
+
+    def __str__(self):
+        return f'{self.user} in {self.household}'
+    
 class BillQuerySet(models.QuerySet):
     def visible_to(self, user):
         return self.filter(household__members=user)

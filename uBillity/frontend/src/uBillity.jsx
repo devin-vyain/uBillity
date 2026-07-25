@@ -8,6 +8,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContai
 import moment from 'moment';
 import { useAuth } from './context/AuthContext';
 import LoginPage from './LoginPage';
+import { HouseholdProvider, useHousehold } from './context/HouseholdContext';
 
 //Add a comment to create a new commit so we can overwrite main-dev in Github ;o
 
@@ -284,11 +285,44 @@ const getCategoryLabel = (value) => {
 };
 
 export default function BillApp() {
+    return (
+        <HouseholdProvider>
+            <BillAppContent />
+        </HouseholdProvider>
+    );
+}
+
+function BillAppContent() {
     const { token, logout } = useAuth();
+    const { households, currentHouseholdId, switchHousehold, inviteToHousehold, renameHousehold } = useHousehold();
 
     if (!token) {
         return <LoginPage />;
     }
+
+    const [showRenameModal, setShowRenameModal] = useState(false);
+    const [householdToRename, setHouseholdToRename] = useState(null);
+    const [renameValue, setRenameValue] = useState('');
+
+    const openRenameModal = (household) => {
+        setHouseholdToRename(household);
+        setRenameValue(household.name);
+        setShowRenameModal(true);
+        setShowHouseholdMenu(false); // close the dropdown so the modal isn't hidden behind it
+    };
+
+    const handleRenameSubmit = async (e) => {
+        e.preventDefault();
+        if (!renameValue.trim() || !householdToRename) return;
+        try {
+            await renameHousehold(householdToRename.id, renameValue.trim());
+            setShowRenameModal(false);
+            setHouseholdToRename(null);
+        } catch (err) {
+            alert(err.response?.data?.detail || 'You can only rename your default household.');
+        }
+    };
+
     const [showKPIs, setShowKPIs] = useState(true);
     const [showForm, setShowForm] = useState(true);
     const [showList, setShowList] = useState(true);
@@ -301,14 +335,8 @@ export default function BillApp() {
     const [sortAsc, setSortAsc] = useState(true);
 
     const [form, setForm] = useState({
-        name: '',
-        description: '',
-        amount: '',
-        type: '',
-        category: '',
-        due_date: '',
-        reconciled: '',
-        recurrence: 'none',
+        name: '', description: '', amount: '', type: '', category: '',
+        due_date: '', reconciled: '', recurrence: 'none', household: '',
     });
 
     const [showReconciled, setShowReconciled] = useState(false);
@@ -406,13 +434,14 @@ export default function BillApp() {
     const [deleteSeries, setDeleteSeries] = useState(false);
 
     const fetchBills = async () => {
-        const res = await api.get('bills/');
+        const params = currentHouseholdId ? { household: currentHouseholdId } : {};
+        const res = await api.get('bills/', { params });
         setBills(res.data);
     };
 
     useEffect(() => {
-        fetchBills();
-    }, []);
+        if (currentHouseholdId) fetchBills();
+    }, [currentHouseholdId]);
 
     const getTypeBadgeClass = (type) => {
         switch (type) {
@@ -556,8 +585,23 @@ export default function BillApp() {
         }
     };
 
+    const [showHouseholdMenu, setShowHouseholdMenu] = useState(false);
+    const householdMenuRef = useRef(null);
+    const [showInviteModal, setShowInviteModal] = useState(false);
+    const [inviteUsername, setInviteUsername] = useState('');
+    const [inviteError, setInviteError] = useState('');
+    const [inviteSuccess, setInviteSuccess] = useState('');
 
-
+    // Close the household menu when clicking outside it
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (householdMenuRef.current && !householdMenuRef.current.contains(e.target)) {
+                setShowHouseholdMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const handleDelete = (bill) => {
         setBillToDelete(bill);
@@ -610,6 +654,7 @@ export default function BillApp() {
             due_date: form.due_date || null,
             reconciled: false,
             recurrence: form.recurrence || null,
+            household: form.household || currentHouseholdId,
         };
 
         try {
@@ -632,6 +677,27 @@ export default function BillApp() {
         }
     };
 
+    const openInviteModal = () => {
+        setInviteUsername('');
+        setInviteError('');
+        setInviteSuccess('');
+        setShowInviteModal(true);
+        setShowHouseholdMenu(false); // close the dropdown so the modal isn't hidden behind it
+    };
+
+    const handleInviteSubmit = async (e) => {
+        e.preventDefault();
+        if (!inviteUsername.trim()) return;
+        setInviteError('');
+        setInviteSuccess('');
+        try {
+            await inviteToHousehold(currentHouseholdId, inviteUsername.trim());
+            setInviteSuccess(`${inviteUsername.trim()} added to the household.`);
+            setInviteUsername('');
+        } catch (err) {
+            setInviteError(err.response?.data?.detail || 'Failed to invite user.');
+        }
+    };
 
     return (
         <>
@@ -665,6 +731,59 @@ export default function BillApp() {
                             >
                                 <i className="bi bi-card-list"></i>
                             </button>
+                            <div className="position-relative" ref={householdMenuRef}>
+                                <button
+                                    title="Switch household"
+                                    className={`btn btn-sm ${showHouseholdMenu ? 'btn-primary' : 'btn-outline-light'}`}
+                                    onClick={() => setShowHouseholdMenu(prev => !prev)}
+                                >
+                                    <i className="bi bi-house-door-fill"></i>
+                                </button>
+
+                                {showHouseholdMenu && (
+                                    <div
+                                        className="position-absolute end-0 mt-2 p-3 bg-white border rounded shadow-sm text-dark"
+                                        style={{ minWidth: '240px', zIndex: 10000 }}
+                                    >
+                                        <div className="mb-2 fw-bold">Households</div>
+
+                                        <div className="d-flex flex-column gap-1 mb-3">
+                                            {households.map(h => (
+                                                <div key={h.id} className="d-flex align-items-center gap-1">
+                                                    <button
+                                                        className={`btn btn-sm text-start flex-grow-1 ${String(h.id) === String(currentHouseholdId) ? 'btn-primary' : 'btn-outline-secondary'}`}
+                                                        onClick={() => {
+                                                            switchHousehold(h.id);
+                                                            setShowHouseholdMenu(false);
+                                                        }}
+                                                    >
+                                                        {h.name}{h.is_default ? ' (default)' : ''}
+                                                    </button>
+                                                    {h.is_default && (
+                                                        <button
+                                                            className="btn btn-sm btn-outline-secondary"
+                                                            title="Rename household"
+                                                            onClick={() => openRenameModal(h)}
+                                                        >
+                                                            <i className="bi bi-pencil"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <hr className="my-2" />
+
+                                        <button
+                                            className="btn btn-sm btn-outline-primary w-100"
+                                            onClick={openInviteModal}
+                                        >
+                                            <i className="bi bi-person-plus me-1"></i>
+                                            Invite to current household
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                             <button
                                 title="Log out"
                                 className="btn btn-sm btn-outline-light"
@@ -839,6 +958,20 @@ export default function BillApp() {
                                         <option key={opt.value} value={opt.value}>
                                             {opt.label}
                                         </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="col-md-4">
+                                <label className="form-label">Household</label>
+                                <select
+                                    name="household"
+                                    className="form-select"
+                                    value={form.household || currentHouseholdId || ''}
+                                    onChange={handleChange}
+                                    required
+                                >
+                                    {households.map(h => (
+                                        <option key={h.id} value={h.id}>{h.name}</option>
                                     ))}
                                 </select>
                             </div>
@@ -1131,6 +1264,104 @@ export default function BillApp() {
                             <button className="btn btn-link btn-sm" onClick={toast.onUndo}>
                                 Undo
                             </button>
+                        </div>
+                    </div>
+                )}
+
+                {showRenameModal && (
+                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                        <div className="modal-dialog" role="document">
+                            <div className="modal-content">
+                                <div className="modal-header bg-primary text-white">
+                                    <h5 className="modal-title">Rename Household</h5>
+                                    <button
+                                        type="button"
+                                        className="btn-close"
+                                        onClick={() => setShowRenameModal(false)}
+                                    />
+                                </div>
+                                <form onSubmit={handleRenameSubmit}>
+                                    <div className="modal-body">
+                                        <label htmlFor="householdName" className="form-label">Household Name</label>
+                                        <input
+                                            type="text"
+                                            id="householdName"
+                                            className="form-control"
+                                            value={renameValue}
+                                            onChange={(e) => setRenameValue(e.target.value)}
+                                            autoFocus
+                                            required
+                                        />
+                                    </div>
+                                    <div className="modal-footer">
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            onClick={() => setShowRenameModal(false)}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button type="submit" className="btn btn-primary">
+                                            Save
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Invite Modal */}
+                {showInviteModal && (
+                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                        <div className="modal-dialog" role="document">
+                            <div className="modal-content">
+                                <div className="modal-header bg-primary text-white">
+                                    <h5 className="modal-title">Invite to Household</h5>
+                                    <button
+                                        type="button"
+                                        className="btn-close"
+                                        onClick={() => setShowInviteModal(false)}
+                                    />
+                                </div>
+                                <form onSubmit={handleInviteSubmit}>
+                                    <div className="modal-body">
+                                        <label htmlFor="inviteUsername" className="form-label">Username</label>
+                                        <input
+                                            type="text"
+                                            id="inviteUsername"
+                                            className="form-control"
+                                            value={inviteUsername}
+                                            onChange={(e) => setInviteUsername(e.target.value)}
+                                            autoFocus
+                                            required
+                                        />
+
+                                        {inviteError && (
+                                            <div className="alert alert-danger py-2 mt-3 mb-0">
+                                                {inviteError}
+                                            </div>
+                                        )}
+                                        {inviteSuccess && (
+                                            <div className="alert alert-success py-2 mt-3 mb-0">
+                                                {inviteSuccess}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="modal-footer">
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            onClick={() => setShowInviteModal(false)}
+                                        >
+                                            Close
+                                        </button>
+                                        <button type="submit" className="btn btn-primary">
+                                            Invite
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 )}
