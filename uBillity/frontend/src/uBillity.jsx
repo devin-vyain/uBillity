@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import api from './api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
-import axios from 'axios';
 import { format, parseISO } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import moment from 'moment';
@@ -340,6 +339,10 @@ function BillAppContent() {
     });
 
     const [showReconciled, setShowReconciled] = useState(false);
+    const [showFiltersPanel, setShowFiltersPanel] = useState(true);
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState('');
+    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
     const handleToggleReconciled = async (bill) => {
         if (!bill || typeof bill !== 'object' || !bill.id) {
             console.error('Invalid bill object passed:', bill);
@@ -349,7 +352,7 @@ function BillAppContent() {
         try {
             const updatedReconciled = !bill.reconciled;
 
-            await axios.patch(`http://localhost:8000/api/bills/${bill.id}/`, {
+            await api.patch(`bills/${bill.id}/`, {
                 reconciled: updatedReconciled,
             });
 
@@ -406,9 +409,12 @@ function BillAppContent() {
 
     const clearFilter = () => {
         debug && console.log("Clearing date filters!")
-        setStartDate('')
-        setEndDate('')
-    }
+        setStartDate('');
+        setEndDate('');
+        setSelectedTypeFilter('');
+        setSelectedCategoryFilter('');
+        setSearchTerm('');
+    };
 
     const sortedBills = [...bills].sort((a, b) => {
         return sortAsc
@@ -423,11 +429,26 @@ function BillAppContent() {
         return afterStart && beforeEnd;
     });
 
+    const filteredBySearchAndMeta = filteredByDate.filter(bill => {
+        const matchesType = !selectedTypeFilter || bill.type === selectedTypeFilter;
+        const matchesCategory = !selectedCategoryFilter || bill.category === selectedCategoryFilter;
+        const query = searchTerm.trim().toLowerCase();
+        const searchableText = [
+            bill.name || '',
+            bill.description || '',
+            getTypeLabel(bill.type),
+            getCategoryLabel(bill.category),
+        ].join(' ').toLowerCase();
+        const matchesSearch = !query || searchableText.includes(query);
+
+        return matchesType && matchesCategory && matchesSearch;
+    });
+
     // Always apply the date filter; when reconciled bills are hidden,
     // filter the already date-filtered list by reconciled status.
     const displayedBills = showReconciled
-        ? filteredByDate
-        : filteredByDate.filter(bill => !bill.reconciled);
+        ? filteredBySearchAndMeta
+        : filteredBySearchAndMeta.filter(bill => !bill.reconciled);
 
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [billToDelete, setBillToDelete] = useState(null);
@@ -555,6 +576,14 @@ function BillAppContent() {
             };
         });
     }, [filteredByDate]);
+
+    const lastBalance = runningNetTotalData.length > 0
+        ? runningNetTotalData[runningNetTotalData.length - 1].balance
+        : netTotal;
+
+    const displayDateRangeText = (!startDate && !endDate)
+        ? 'Showing all dates'
+        : `Showing dates ${startDate ? new Date(startDate).toLocaleDateString('en-US') : ''}${startDate && endDate ? ' - ' : ''}${endDate ? new Date(endDate).toLocaleDateString('en-US') : ''}`;
 
     const handleChange = e => {
         setForm({ ...form, [e.target.name]: e.target.value });
@@ -795,244 +824,383 @@ function BillAppContent() {
                     </div>
                 </div>
             </div>
-            <div className="container py-5">
-                {/* KPIs */}
-                <div className={`collapsible-section ${!showKPIs ? 'collapsible-hidden' : ''}`}>
-                    <h2 className="mb-4">KPIs</h2>
-                    <div className="mb-4">
-                        <div className="row mb-4 g-3">
+            <div className="container py-5 app-root-shell">
+                <div className={`layout-with-sidebar ${showFiltersPanel ? 'drawer-open' : 'drawer-collapsed'}`}>
+                    <div className="content-main">
+                        {/* KPIs */}
+                        <div className={`collapsible-section ${!showKPIs ? 'collapsible-hidden' : ''}`}>
+                            <h2 className="mb-4">KPIs</h2>
+                            <h6 className="text-danger fw-bold fs-6 mb-3">{displayDateRangeText}</h6>
+                            <div className="mb-4">
+                                <div className="row mb-4 g-3">
 
-                            <div className="col-md-3">
-                                <div className="card text-white bg-success h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Net Income</h5>
-                                        <p className="card-text display-6">${totalIncome.toFixed(2)}</p>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-success h-100 text-center">
+                                            <div className="card-body d-flex flex-column justify-content-center">
+                                                <h5 className="card-title">Total Income</h5>
+                                                <p className="card-text display-6">${totalIncome.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-info h-100 text-center">
+                                            <div className="card-body d-flex flex-column justify-content-center">
+                                                <h5 className="card-title">Current Assets</h5>
+                                                <p className="card-text display-6">${totalAsset.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-danger h-100 text-center">
+                                            <div className="card-body d-flex flex-column justify-content-center">
+                                                <h5 className="card-title">Total Liability</h5>
+                                                <p className="card-text display-6">${totalLiability.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-secondary h-100 text-center">
+                                            <div className="card-body d-flex flex-column justify-content-center">
+                                                <h5 className="card-title">Total Expenses</h5>
+                                                <p className="card-text display-6">${totalExpense.toFixed(2)}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="col-md-3">
-                                <div className="card text-white bg-info h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Current Assets</h5>
-                                        <p className="card-text display-6">${totalAsset.toFixed(2)}</p>
+
+                                <div className="row mb-4 g-3">
+                                    <div className="col-md-12">
+                                        <div className="card text-white bg-dark h-100 text-center">
+                                            <div className="card-body d-flex flex-column justify-content-center">
+                                                <h5 className="card-title">Ending Balance</h5>
+                                                <p className="card-text display-6">${lastBalance.toFixed(2)}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="col-md-3">
-                                <div className="card text-white bg-danger h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Total Liability</h5>
-                                        <p className="card-text display-6">${totalLiability.toFixed(2)}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="col-md-3">
-                                <div className="card text-white bg-secondary h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Total Expenses</h5>
-                                        <p className="card-text display-6">${totalExpense.toFixed(2)}</p>
-                                    </div>
-                                </div>
+                                <NetTotalChart data={runningNetTotalData} />
+                                <hr className="my-5" />
                             </div>
                         </div>
 
-                        <div className="row mb-4 g-3">
-
-                            <div className="col-md-12">
-                                <div className="card text-white bg-dark h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Net Total</h5>
-                                        <p className="card-text display-6">${netTotal.toFixed(2)}</p>
+                        <div className={`collapsible-section ${!showForm ? 'collapsible-hidden' : ''}`}>
+                            <>
+                                <h2 className="mb-4">Add Records</h2>
+                                <form onSubmit={handleSubmit} className="row m-4 g-3">
+                                    <div className="col-md-6 mb-4">
+                                        <label className="form-label">Name</label>
+                                        <input
+                                            name="name"
+                                            className="form-control"
+                                            placeholder="e.g. Rent"
+                                            value={form.name}
+                                            onChange={handleChange}
+                                            required
+                                        />
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                        {/* Line Chart */}
-                        <NetTotalChart data={runningNetTotalData} />
 
-                        <hr className="my-5" />
-                    </div>
-                </div>
-                {/* Add Records Form */}
-                <div className={`collapsible-section ${!showForm ? 'collapsible-hidden' : ''}`}>
-                    <>
-                        <h2 className="mb-4">Add Records</h2>
-                        <form onSubmit={handleSubmit} className="row m-4 g-3">
-
-                            <div className="col-md-6 mb-4">
-                                <label className="form-label">Name</label>
-                                <input
-                                    name="name"
-                                    className="form-control"
-                                    placeholder="e.g. Rent"
-                                    value={form.name}
-                                    onChange={handleChange}
-                                    required
-                                />
-                            </div>
-
-                            <div className="col-md-6">
-                                <label className="form-label">Amount</label>
-                                <div className="input-group">
-                                    <div className="input-group-prepend">
-                                        <span className="input-group-text">$</span>
+                                    <div className="col-md-6">
+                                        <label className="form-label">Amount</label>
+                                        <div className="input-group">
+                                            <div className="input-group-prepend">
+                                                <span className="input-group-text">$</span>
+                                            </div>
+                                            <input
+                                                name="amount"
+                                                type="number"
+                                                step="5.0"
+                                                className="form-control"
+                                                value={form.amount}
+                                                onChange={handleChange}
+                                                required
+                                            />
+                                        </div>
                                     </div>
-                                    <input
-                                        name="amount"
-                                        type="number"
-                                        step="5.0"
-                                        className="form-control"
-                                        value={form.amount}
-                                        onChange={handleChange}
-                                        required
-                                    />
-                                </div>
-                            </div>
 
-                            <div className="col-8">
-                                <label className="form-label">Description</label>
-                                <input
-                                    name="description"
-                                    className="form-control"
-                                    placeholder="e.g. Monthly rent for apartment"
-                                    value={form.description}
-                                    onChange={handleChange}
-                                />
-                            </div>
+                                    <div className="col-8">
+                                        <label className="form-label">Description</label>
+                                        <input
+                                            name="description"
+                                            className="form-control"
+                                            placeholder="e.g. Monthly rent for apartment"
+                                            value={form.description}
+                                            onChange={handleChange}
+                                        />
+                                    </div>
 
-                            <div className="col-md-4">
-                                <label className="form-label">Due Date</label>
-                                <div className="form-date" style={{ position: 'relative' }}>
-                                    <input
-                                        type="date"
-                                        name="due_date"
-                                        className="form-control"
-                                        value={form.due_date}
-                                        onChange={handleChange}
-                                        required
-                                        ref={addDueDateRef}
-                                        style={{ paddingRight: '36px' }}
-                                    />
-                                    <i
-                                        className="bi bi-calendar3"
-                                        title="Open date picker"
-                                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'auto', cursor: 'pointer', color: '#6c757d' }}
-                                        onClick={() => {
-                                            if (addDueDateRef.current) {
-                                                try {
-                                                    addDueDateRef.current.showPicker?.();
-                                                } catch (e) {
-                                                    addDueDateRef.current.focus();
-                                                }
-                                                addDueDateRef.current.focus();
+                                    <div className="col-md-4">
+                                        <label className="form-label">Due Date</label>
+                                        <div className="form-date" style={{ position: 'relative' }}>
+                                            <input
+                                                type="date"
+                                                name="due_date"
+                                                className="form-control"
+                                                value={form.due_date}
+                                                onChange={handleChange}
+                                                required
+                                                ref={addDueDateRef}
+                                                style={{ paddingRight: '36px' }}
+                                            />
+                                            <i
+                                                className="bi bi-calendar3"
+                                                title="Open date picker"
+                                                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'auto', cursor: 'pointer', color: '#6c757d' }}
+                                                onClick={() => {
+                                                    if (addDueDateRef.current) {
+                                                        try {
+                                                            addDueDateRef.current.showPicker?.();
+                                                        } catch (e) {
+                                                            addDueDateRef.current.focus();
+                                                        }
+                                                        addDueDateRef.current.focus();
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Type</label>
+                                        <select
+                                            name="type"
+                                            className="form-select"
+                                            value={form.type}
+                                            onChange={handleChange}
+                                            required
+                                        >
+                                            {TRANSACTION_TYPES.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>
+                                                    {opt.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Category</label>
+                                        <select
+                                            name="category"
+                                            className="form-select"
+                                            value={form.category}
+                                            onChange={handleChange}
+                                        >
+                                            {TRANSACTION_CATEGORIES.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>
+                                                    {opt.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Household</label>
+                                        <select
+                                            name="household"
+                                            className="form-select"
+                                            value={form.household || currentHouseholdId || ''}
+                                            onChange={handleChange}
+                                            required
+                                        >
+                                            {households.map(h => (
+                                                <option key={h.id} value={h.id}>{h.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Recurrence</label>
+                                        <select
+                                            value={form.recurrence}
+                                            onChange={(e) =>
+                                                setForm({ ...form, recurrence: e.target.value })
                                             }
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                            <div className="col-md-4">
-                                <label className="form-label">Type</label>
-                                <select
-                                    name="type"
-                                    className="form-select"
-                                    value={form.type}
-                                    onChange={handleChange}
-                                    required
-                                >
-                                    {TRANSACTION_TYPES.map((opt) => (
-                                        <option key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="col-md-4">
-                                <label className="form-label">Category</label>
-                                <select
-                                    name="category"
-                                    className="form-select"
-                                    value={form.category}
-                                    onChange={handleChange}
-                                >
-                                    {TRANSACTION_CATEGORIES.map((opt) => (
-                                        <option key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="col-md-4">
-                                <label className="form-label">Household</label>
-                                <select
-                                    name="household"
-                                    className="form-select"
-                                    value={form.household || currentHouseholdId || ''}
-                                    onChange={handleChange}
-                                    required
-                                >
-                                    {households.map(h => (
-                                        <option key={h.id} value={h.id}>{h.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="col-md-4">
-                                <label className="form-label">Recurrence</label>
-                                <select
-                                    value={form.recurrence}
-                                    onChange={(e) =>
-                                        setForm({ ...form, recurrence: e.target.value })
-                                    }
-                                    className="form-select"
-                                    required
-                                >
-                                    <option value="">-- Select Recurrence --</option>
-                                    <option value="none">One-Time</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="biweekly">Biweekly</option>
-                                    <option value="monthly">Monthly</option>
-                                    <option value="bimonthly">Bimonthly</option>
-                                    <option value="annually">Annually</option>
-                                </select>
-                            </div>
+                                            className="form-select"
+                                            required
+                                        >
+                                            <option value="">-- Select Recurrence --</option>
+                                            <option value="none">One-Time</option>
+                                            <option value="daily">Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="biweekly">Biweekly</option>
+                                            <option value="monthly">Monthly</option>
+                                            <option value="bimonthly">Bimonthly</option>
+                                            <option value="annually">Annually</option>
+                                        </select>
+                                    </div>
 
-                            <div className="col-12">
-                                <button type="submit" className="btn btn-primary">
-                                    Submit
+                                    <div className="col-12">
+                                        <button type="submit" className="btn btn-primary">
+                                            Submit
+                                        </button>
+                                    </div>
+                                </form>
+                                <hr className="my-5" />
+                            </>
+                        </div>
+
+                        <div className={`collapsible-section ${!showList ? 'collapsible-hidden' : ''}`}>
+                            <>
+                                <h2 className="mb-4 d-flex justify-content-between align-items-center">
+                                    <span>List</span>
+                                    <div className="d-flex justify-content-end gap-2 flex-wrap">
+                                        <button
+                                            className="btn btn-sm btn-primary"
+                                            onClick={() => setSortAsc((prev) => !prev)}
+                                            title={`Sort by Due Date (${sortAsc ? 'Desc' : 'Asc'})`}
+                                        >
+                                            <i className={`bi ${sortAsc ? 'bi-sort-down' : 'bi-sort-up'}`}></i>
+                                            <span className="ms-1">Due Date</span>
+                                        </button>
+                                    </div>
+                                </h2>
+
+                                <div className="row m-4">
+                                    {displayedBills.length === 0 ? (
+                                        <div className="col-12">
+                                            <div className="alert alert-light border text-center mb-0">
+                                                No records match the current filters.
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        displayedBills.map((bill) => (
+                                            <div key={bill.id} className={now.isAfter(bill.due_date) && bill.type !== 'asset' && bill.reconciled === false ? 'card mb-3 position-relative overdue' : bill.reconciled === true ? 'card mb-3 position-relative reconciled' : 'card mb-3 position-relative'}>
+                                                <div className="card-view">
+                                                    <div className="position-absolute top-0 end-0 m-2 d-flex gap-2">
+                                                        <button
+                                                            onClick={() => handleEdit(bill)}
+                                                            className="btn btn-light btn-sm"
+                                                            title="Edit Bill"
+                                                            aria-label="Edit Bill"
+                                                        >
+                                                            <i className="bi bi-pencil"></i>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => handleDelete(bill)}
+                                                            className="btn delete-btn btn-light btn-sm"
+                                                            title="Delete Bill"
+                                                            aria-label="Delete Bill"
+                                                        >
+                                                            <i className="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+
+                                                    <h5 className="card-title mb-0">
+                                                        {bill.name} — ${bill.amount.toFixed(2)}
+                                                    </h5>
+
+                                                    <h6 className="text-secondary me-2">{format(parseISO(bill.due_date), 'MM/dd/yyyy')}</h6>
+                                                    <p className="card-text mt-2">{bill.description}</p>
+
+                                                    <div className="d-flex align-items-center flex-wrap gap-2">
+                                                        <span className={`badge ${getTypeBadgeClass(bill.type)}`}>
+                                                            {getTypeLabel(bill.type)}
+                                                        </span>
+
+                                                        <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
+                                                            {getCategoryLabel(bill.category)}
+                                                        </span>
+
+                                                        {bill.recurrence !== 'none' && (
+                                                            <span className="badge bg-secondary ms-2">
+                                                                {bill.recurrence.charAt(0).toUpperCase() + bill.recurrence.slice(1)}
+                                                            </span>
+                                                        )}
+
+                                                        <span className="form-check d-flex align-items-center ms-auto">
+                                                            <input
+                                                                className="form-check-input me-2"
+                                                                type="checkbox"
+                                                                id={`reconciled-${bill.id}`}
+                                                                checked={bill.reconciled}
+                                                                onChange={() => handleToggleReconciled(bill)}
+                                                            />
+                                                            <label className="form-check-label" htmlFor={`reconciled-${bill.id}`}>
+                                                                Reconciled
+                                                            </label>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </>
+                        </div>
+                    </div>
+
+                    <div className={`filter-drawer ${showFiltersPanel ? 'open' : 'collapsed'}`}>
+                        <div className="filter-rail">
+                            <button
+                                type="button"
+                                className="filter-toggle-btn"
+                                title={showFiltersPanel ? 'Hide filters' : 'Show filters'}
+                                onClick={() => setShowFiltersPanel(prev => !prev)}
+                                aria-label={showFiltersPanel ? 'Hide filters' : 'Show filters'}
+                            >
+                                <i className={`bi ${showFiltersPanel ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
+                            </button>
+                        </div>
+
+                        <aside className="filter-drawer-panel">
+                            <div className="d-flex justify-content-between align-items-center mb-3">
+                                <h5 className="mb-0">Filters</h5>
+                                <button
+                                    className="btn btn-sm btn-outline-secondary"
+                                    onClick={clearFilter}
+                                    type="button"
+                                >
+                                    Clear
                                 </button>
                             </div>
-                        </form>
-                        <hr className="my-5" />
-                    </>
-                </div>
-                {/* Records List Header and Filters for Card View*/}
-                <div className={`collapsible-section ${!showList ? 'collapsible-hidden' : ''}`}>
-                    <>
-                        <h2 className="mb-4 d-flex justify-content-between">
-                            <span>List</span>
-                            <div className="d-flex justify-content-end gap-2">
 
+                            <div className="mb-3">
+                                <label className="form-label">Search</label>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    placeholder="Name, description, type..."
+                                />
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Type</label>
+                                <select
+                                    className="form-select"
+                                    value={selectedTypeFilter}
+                                    onChange={(e) => setSelectedTypeFilter(e.target.value)}
+                                >
+                                    <option value="">All Types</option>
+                                    {TRANSACTION_TYPES.filter(opt => opt.value).map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Category</label>
+                                <select
+                                    className="form-select"
+                                    value={selectedCategoryFilter}
+                                    onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                                >
+                                    <option value="">All Categories</option>
+                                    {TRANSACTION_CATEGORIES.filter(opt => opt.value).map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="mb-3">
                                 <button
-                                    className={`btn btn-sm ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
+                                    type="button"
+                                    className={`btn btn-sm w-100 ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
                                     onClick={() => setShowReconciled(prev => !prev)}
                                 >
                                     {showReconciled ? 'Hide Reconciled' : 'Show Reconciled'}
                                 </button>
-                                <button
-                                    className="btn btn-sm btn-primary"
-                                    onClick={() => setSortAsc((prev) => !prev)}
-                                    title={`Sort by Due Date (${sortAsc ? 'Desc' : 'Asc'})`}
-                                >
-                                    <i className={`bi ${sortAsc ? 'bi-sort-down' : 'bi-sort-up'}`}></i>
-                                    <span className="ms-1">Due Date</span>
-                                </button>
                             </div>
-                        </h2>
-                        {/* Bills List Card View Section */}
-                        <div className="row d-flex m-4 flex-wrap mb-3 bg-light rounded border p-2">
-                            <h5>Date Filters</h5>
-                            <div className="col-md-3">
-                                <label>Start Date</label>
+
+                            <div className="mb-3">
+                                <label className="form-label">Start Date</label>
                                 <div style={{ position: 'relative' }}>
                                     <input
                                         type="date"
@@ -1055,8 +1223,9 @@ function BillAppContent() {
                                     />
                                 </div>
                             </div>
-                            <div className="col-md-3">
-                                <label>End Date</label>
+
+                            <div className="mb-3">
+                                <label className="form-label">End Date</label>
                                 <div style={{ position: 'relative' }}>
                                     <input
                                         type="date"
@@ -1080,92 +1249,15 @@ function BillAppContent() {
                                 </div>
                             </div>
 
-                            {/* Quick Range Buttons */}
-                            <div className="d-flex flex-wrap gap-2 mt-4 col-md-6">
-                                <button className="btn btn-outline-primary" onClick={() => setDateRange(30)}>Next 30 Days</button>
-                                <button className="btn btn-outline-primary" onClick={() => setDateRange(60)}>Next 60 Days</button>
-                                <button className="btn btn-outline-success" onClick={filterUntilNextIncome}>Until Next Income</button>
-                                <button className="btn btn-outline-success" onClick={clearFilter}>Clear</button>
+                            <div className="d-flex flex-wrap gap-2">
+                                <button className="btn btn-sm btn-outline-primary" onClick={() => setDateRange(30)} type="button">Next 30 Days</button>
+                                <button className="btn btn-sm btn-outline-primary" onClick={() => setDateRange(60)} type="button">Next 60 Days</button>
+                                <button className="btn btn-sm btn-outline-success" onClick={filterUntilNextIncome} type="button">Until Next Income</button>
                             </div>
-
-                        </div>
-                        < div className="row m-4" >
-                            {
-                                displayedBills.map((bill) => (
-                                    <div key={bill.id} className={now.isAfter(bill.due_date) && bill.type != 'asset' && bill.reconciled == false ? "card mb-3 position-relative overdue" : bill.reconciled == true ? "card mb-3 position-relative reconciled" : "card mb-3 position-relative"}>
-                                        <div className="card-view">
-                                            <div className="position-absolute top-0 end-0 m-2 d-flex gap-2">
-                                                {/* Edit button */}
-                                                <button
-                                                    onClick={() => handleEdit(bill)}
-                                                    className="btn btn-light btn-sm"
-                                                    title="Edit Bill"
-                                                    aria-label="Edit Bill"
-                                                >
-                                                    <i className="bi bi-pencil"></i>
-                                                </button>
-
-                                                {/* Delete button */}
-                                                <button
-                                                    onClick={() => handleDelete(bill)}
-                                                    className="btn delete-btn btn-light btn-sm"
-                                                    title="Delete Bill"
-                                                    aria-label="Delete Bill"
-                                                >
-                                                    <i className="bi bi-trash"></i>
-                                                </button>
-
-                                            </div>
-
-
-                                            <h5 className="card-title mb-0">
-                                                {bill.name} — ${bill.amount.toFixed(2)}
-                                            </h5>
-
-                                            <h6 className="text-secondary me-2">{format(parseISO(bill.due_date), 'MM/dd/yyyy')}</h6>
-                                            <p className="card-text mt-2">{bill.description}</p>
-
-                                            {/* Bottom bar of Card View */}
-                                            <div className="d-flex align-items-center flex-wrap gap-2">
-                                                {/* Type badge */}
-                                                <span className={`badge ${getTypeBadgeClass(bill.type)}`}>
-                                                    {getTypeLabel(bill.type)}
-                                                </span>
-
-                                                {/* Category badge */}
-                                                <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
-                                                    {getCategoryLabel(bill.category)}
-                                                </span>
-
-                                                {/* Recurrence Badge */}
-                                                {bill.recurrence !== 'none' && (
-                                                    <span className="badge bg-secondary ms-2">
-                                                        {bill.recurrence.charAt(0).toUpperCase() + bill.recurrence.slice(1)}
-                                                    </span>
-                                                )}
-
-                                                {/* Reconciled Checkbox */}
-                                                <span className="form-check d-flex align-items-center ms-auto">
-                                                    <input
-                                                        className="form-check-input me-2"
-                                                        type="checkbox"
-                                                        id={`reconciled-${bill.id}`}
-                                                        checked={bill.reconciled}
-                                                        onChange={() => handleToggleReconciled(bill)}
-                                                    />
-                                                    <label className="form-check-label" htmlFor={`reconciled-${bill.id}`}>
-                                                        Reconciled
-                                                    </label>
-                                                </span>
-                                            </div>
-
-                                        </div>
-                                    </div>
-                                ))
-                            }
-                        </div>
-                    </>
+                        </aside>
+                    </div>
                 </div>
+
                 {/* Delete confirmation modal */}
                 {showDeleteModal && (
                     <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">

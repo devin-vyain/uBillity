@@ -26,7 +26,7 @@ class BillSerializer(serializers.ModelSerializer):
     type = serializers.ChoiceField(choices=TRANSACTION_TYPES, required=True)
     category = serializers.ChoiceField(choices=TRANSACTION_CATEGORIES, allow_blank=True, allow_null=True, required=False)
     due_date = serializers.DateField()
-    reconciled = serializers.BooleanField(default="False")
+    reconciled = serializers.BooleanField(default=False)
     recurrence = serializers.ChoiceField(choices=RECURRENCE_CHOICES, allow_blank=False, allow_null=False, required=True)
     recurrence_id = serializers.UUIDField(read_only=True)
     household = serializers.PrimaryKeyRelatedField(queryset=Household.objects.none(), required=False)
