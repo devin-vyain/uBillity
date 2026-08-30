@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 TRANSACTION_TYPES = [
     ('asset', 'Asset'),
@@ -25,16 +26,65 @@ RECURRENCE_CHOICES = [
         ('monthly', 'Monthly'),
         ('bimonthly', 'Bimonthly'),
         ('annually', 'Annually'),
-    ]
+]
+
+class Household(models.Model):
+    name = models.CharField(max_length=100)
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='HouseholdMembership',
+        related_name='households',
+    )
+
+    def __str__(self):
+        return self.name
+
+
+class HouseholdMembership(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='household_memberships',
+    )
+    household = models.ForeignKey(
+        Household,
+        on_delete=models.CASCADE,
+        related_name='memberships',
+    )
+    is_default = models.BooleanField(default=False)
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'household')
+
+    def __str__(self):
+        return f'{self.user} in {self.household}'
+    
+class BillQuerySet(models.QuerySet):
+    def visible_to(self, user):
+        return self.filter(household__members=user)
 
 class Bill(models.Model):
+    objects = BillQuerySet.as_manager()
+
+    household = models.ForeignKey(
+        'Household',
+        on_delete=models.CASCADE,
+        related_name='bills',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='bills_created',
+    )
     name = models.CharField(max_length=50)
     description = models.CharField(max_length=200, blank=True, null=True)
-    amount=models.FloatField()
-    type=models.CharField(max_length=20, choices=TRANSACTION_TYPES, default='liability')
-    category=models.CharField(max_length=20, choices=TRANSACTION_CATEGORIES, blank=True, null=True)
-    due_date=models.DateField()
-    reconciled=models.BooleanField(default="False")
+    amount = models.FloatField()
+    type = models.CharField(max_length=20, choices=TRANSACTION_TYPES, default='liability')
+    category = models.CharField(max_length=20, choices=TRANSACTION_CATEGORIES, blank=True, null=True)
+    due_date = models.DateField()
+    reconciled = models.BooleanField(default=False)
     recurrence = models.CharField(max_length=10, choices=RECURRENCE_CHOICES, default='none')
     recurrence_id = models.UUIDField(null=True, blank=True, editable=False)
 

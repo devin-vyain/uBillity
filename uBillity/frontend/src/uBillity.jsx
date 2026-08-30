@@ -2,10 +2,12 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import api from './api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
-import axios from 'axios';
 import { format, parseISO } from 'date-fns';
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import moment from 'moment';
+import { useAuth } from './context/AuthContext';
+import LoginPage from './LoginPage';
+import { HouseholdProvider, useHousehold } from './context/HouseholdContext';
 
 //Add a comment to create a new commit so we can overwrite main-dev in Github ;o
 
@@ -27,8 +29,8 @@ const NetTotalChart = React.memo(({ data }) => {
     }, [data]);
 
     return (
-        <div className='d-flex p-2' style={{ width: '100%', height: 300 }}>
-            <ResponsiveContainer width="100%" height={300}>
+        <div className='d-flex p-2' style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={data}>
                     <CartesianGrid stroke="#ccc" />
                     <XAxis
@@ -136,6 +138,69 @@ const NetTotalChart = React.memo(({ data }) => {
                     />
                     <Line type="monotone" dataKey="balance" stroke="#4caf50" strokeWidth={3} dot={false} />
                 </LineChart>
+            </ResponsiveContainer>
+        </div>
+    );
+});
+
+const CostBreakdownChart = React.memo(({ data, groupBy }) => {
+    const chartData = useMemo(() => {
+        if (!data || !data.length) return [];
+
+        const grouped = data.reduce((acc, entry) => {
+            const key = groupBy === 'type' ? entry.type : entry.category;
+            const label = groupBy === 'type' ? getTypeLabel(key) : getCategoryLabel(key);
+            const nextKey = label || key || 'Uncategorized';
+
+            if (!acc[nextKey]) {
+                acc[nextKey] = 0;
+            }
+
+            acc[nextKey] += Number(entry.amount || 0);
+            return acc;
+        }, {});
+
+        return Object.entries(grouped).map(([name, value]) => ({ name, value }));
+    }, [data, groupBy]);
+
+    const totalValue = useMemo(() => chartData.reduce((sum, entry) => sum + Number(entry.value || 0), 0), [chartData]);
+    const COLORS = ['#0d6efd', '#198754', '#fd7e14', '#dc3545', '#6c757d', '#20c997', '#e83e8c', '#6610f2'];
+    const groupLabel = groupBy === 'type' ? 'Type' : 'Category';
+
+    return (
+        <div className="chart-card pie-chart-card" style={{ position: 'relative', width: '100%', height: 260 }}>
+            <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                    <Tooltip
+                        formatter={(value, name, props) => {
+                            const entry = props.payload;
+                            const groupName = entry?.name || name || 'N/A';
+                            const numericValue = Number(value || 0);
+                            const formattedValue = new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                                maximumFractionDigits: 0,
+                            }).format(numericValue);
+                            const percent = totalValue > 0 ? ((numericValue / totalValue) * 100).toFixed(0) : '0';
+                            return [`${groupName}: ${formattedValue} (${percent}%)`];
+                        }}
+                        labelFormatter={(value) => value}
+                    />
+                    <Pie
+                        data={chartData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={42}
+                        outerRadius={82}
+                        paddingAngle={2}
+                        label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                        labelLine={true}
+                    >
+                        {chartData.map((entry, index) => (
+                            <Cell key={`${entry.name}-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                    </Pie>
+                </PieChart>
             </ResponsiveContainer>
         </div>
     );
@@ -282,6 +347,44 @@ const getCategoryLabel = (value) => {
 };
 
 export default function BillApp() {
+    return (
+        <HouseholdProvider>
+            <BillAppContent />
+        </HouseholdProvider>
+    );
+}
+
+function BillAppContent() {
+    const { token, logout } = useAuth();
+    const { households, currentHouseholdId, switchHousehold, inviteToHousehold, renameHousehold } = useHousehold();
+
+    if (!token) {
+        return <LoginPage />;
+    }
+
+    const [showRenameModal, setShowRenameModal] = useState(false);
+    const [householdToRename, setHouseholdToRename] = useState(null);
+    const [renameValue, setRenameValue] = useState('');
+
+    const openRenameModal = (household) => {
+        setHouseholdToRename(household);
+        setRenameValue(household.name);
+        setShowRenameModal(true);
+        setShowHouseholdMenu(false); // close the dropdown so the modal isn't hidden behind it
+    };
+
+    const handleRenameSubmit = async (e) => {
+        e.preventDefault();
+        if (!renameValue.trim() || !householdToRename) return;
+        try {
+            await renameHousehold(householdToRename.id, renameValue.trim());
+            setShowRenameModal(false);
+            setHouseholdToRename(null);
+        } catch (err) {
+            alert(err.response?.data?.detail || 'You can only rename your default household.');
+        }
+    };
+
     const [showKPIs, setShowKPIs] = useState(true);
     const [showForm, setShowForm] = useState(true);
     const [showList, setShowList] = useState(true);
@@ -291,20 +394,20 @@ export default function BillApp() {
     const [toast, setToast] = useState(null);
 
     const [bills, setBills] = useState([]);
+    const [sortField, setSortField] = useState('due_date');
     const [sortAsc, setSortAsc] = useState(true);
+    const [pieChartGroupBy, setPieChartGroupBy] = useState('type');
 
     const [form, setForm] = useState({
-        name: '',
-        description: '',
-        amount: '',
-        type: '',
-        category: '',
-        due_date: '',
-        reconciled: '',
-        recurrence: 'none',
+        name: '', description: '', amount: '', type: '', category: '',
+        due_date: '', reconciled: '', recurrence: 'none', household: '',
     });
 
     const [showReconciled, setShowReconciled] = useState(false);
+    const [showFiltersPanel, setShowFiltersPanel] = useState(true);
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState('');
+    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
     const handleToggleReconciled = async (bill) => {
         if (!bill || typeof bill !== 'object' || !bill.id) {
             console.error('Invalid bill object passed:', bill);
@@ -314,7 +417,7 @@ export default function BillApp() {
         try {
             const updatedReconciled = !bill.reconciled;
 
-            await axios.patch(`http://localhost:8000/api/bills/${bill.id}/`, {
+            await api.patch(`bills/${bill.id}/`, {
                 reconciled: updatedReconciled,
             });
 
@@ -371,14 +474,29 @@ export default function BillApp() {
 
     const clearFilter = () => {
         debug && console.log("Clearing date filters!")
-        setStartDate('')
-        setEndDate('')
-    }
+        setStartDate('');
+        setEndDate('');
+        setSelectedTypeFilter('');
+        setSelectedCategoryFilter('');
+        setSearchTerm('');
+    };
+
+    const getSortValue = (bill, field) => {
+        switch (field) {
+            case 'amount':
+                return Number(bill.amount) || 0;
+            case 'date_added':
+                return Number(bill.id) || 0;
+            case 'due_date':
+            default:
+                return new Date(bill.due_date).getTime();
+        }
+    };
 
     const sortedBills = [...bills].sort((a, b) => {
-        return sortAsc
-            ? new Date(a.due_date) - new Date(b.due_date)
-            : new Date(b.due_date) - new Date(a.due_date);
+        const aVal = getSortValue(a, sortField);
+        const bVal = getSortValue(b, sortField);
+        return sortAsc ? aVal - bVal : bVal - aVal;
     });
 
     const filteredByDate = sortedBills.filter(bill => {
@@ -388,24 +506,44 @@ export default function BillApp() {
         return afterStart && beforeEnd;
     });
 
+    const filteredBySearchAndMeta = filteredByDate.filter(bill => {
+        const matchesType = !selectedTypeFilter || bill.type === selectedTypeFilter;
+        const matchesCategory = !selectedCategoryFilter || bill.category === selectedCategoryFilter;
+        const query = searchTerm.trim().toLowerCase();
+        const searchableText = [
+            bill.name || '',
+            bill.description || '',
+            getTypeLabel(bill.type),
+            getCategoryLabel(bill.category),
+        ].join(' ').toLowerCase();
+        const matchesSearch = !query || searchableText.includes(query);
+
+        return matchesType && matchesCategory && matchesSearch;
+    });
+
+    const pieChartSource = useMemo(() => {
+        return showReconciled ? filteredBySearchAndMeta : filteredBySearchAndMeta.filter(bill => !bill.reconciled);
+    }, [filteredBySearchAndMeta, showReconciled]);
+
     // Always apply the date filter; when reconciled bills are hidden,
     // filter the already date-filtered list by reconciled status.
     const displayedBills = showReconciled
-        ? filteredByDate
-        : filteredByDate.filter(bill => !bill.reconciled);
+        ? filteredBySearchAndMeta
+        : filteredBySearchAndMeta.filter(bill => !bill.reconciled);
 
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [billToDelete, setBillToDelete] = useState(null);
     const [deleteSeries, setDeleteSeries] = useState(false);
 
     const fetchBills = async () => {
-        const res = await api.get('bills/');
+        const params = currentHouseholdId ? { household: currentHouseholdId } : {};
+        const res = await api.get('bills/', { params });
         setBills(res.data);
     };
 
     useEffect(() => {
-        fetchBills();
-    }, []);
+        if (currentHouseholdId) fetchBills();
+    }, [currentHouseholdId]);
 
     const getTypeBadgeClass = (type) => {
         switch (type) {
@@ -520,6 +658,14 @@ export default function BillApp() {
         });
     }, [filteredByDate]);
 
+    const lastBalance = runningNetTotalData.length > 0
+        ? runningNetTotalData[runningNetTotalData.length - 1].balance
+        : netTotal;
+
+    const displayDateRangeText = (!startDate && !endDate)
+        ? 'Showing all dates'
+        : `Showing dates ${startDate ? new Date(startDate).toLocaleDateString('en-US') : ''}${startDate && endDate ? ' - ' : ''}${endDate ? new Date(endDate).toLocaleDateString('en-US') : ''}`;
+
     const handleChange = e => {
         setForm({ ...form, [e.target.name]: e.target.value });
     };
@@ -549,8 +695,23 @@ export default function BillApp() {
         }
     };
 
+    const [showHouseholdMenu, setShowHouseholdMenu] = useState(false);
+    const householdMenuRef = useRef(null);
+    const [showInviteModal, setShowInviteModal] = useState(false);
+    const [inviteUsername, setInviteUsername] = useState('');
+    const [inviteError, setInviteError] = useState('');
+    const [inviteSuccess, setInviteSuccess] = useState('');
 
-
+    // Close the household menu when clicking outside it
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (householdMenuRef.current && !householdMenuRef.current.contains(e.target)) {
+                setShowHouseholdMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const handleDelete = (bill) => {
         setBillToDelete(bill);
@@ -603,6 +764,7 @@ export default function BillApp() {
             due_date: form.due_date || null,
             reconciled: false,
             recurrence: form.recurrence || null,
+            household: form.household || currentHouseholdId,
         };
 
         try {
@@ -625,6 +787,27 @@ export default function BillApp() {
         }
     };
 
+    const openInviteModal = () => {
+        setInviteUsername('');
+        setInviteError('');
+        setInviteSuccess('');
+        setShowInviteModal(true);
+        setShowHouseholdMenu(false); // close the dropdown so the modal isn't hidden behind it
+    };
+
+    const handleInviteSubmit = async (e) => {
+        e.preventDefault();
+        if (!inviteUsername.trim()) return;
+        setInviteError('');
+        setInviteSuccess('');
+        try {
+            await inviteToHousehold(currentHouseholdId, inviteUsername.trim());
+            setInviteSuccess(`${inviteUsername.trim()} added to the household.`);
+            setInviteUsername('');
+        } catch (err) {
+            setInviteError(err.response?.data?.detail || 'Failed to invite user.');
+        }
+    };
 
     return (
         <>
@@ -653,239 +836,496 @@ export default function BillApp() {
                             </button>
                             <button
                                 title="Show/hide list"
-                                className={`btn btn-sm ${showList ? 'btn-primary' : 'btn-outline-light'}`}
+                                className={`btn btn-sm me-3 ${showList ? 'btn-primary' : 'btn-outline-light'}`}
                                 onClick={() => setShowList(prev => !prev)}
                             >
                                 <i className="bi bi-card-list"></i>
                             </button>
+                            <div className="position-relative" ref={householdMenuRef}>
+                                <button
+                                    title="Switch household"
+                                    className={`btn btn-sm ${showHouseholdMenu ? 'btn-primary' : 'btn-outline-light'}`}
+                                    onClick={() => setShowHouseholdMenu(prev => !prev)}
+                                >
+                                    <i className="bi bi-house-door-fill"></i>
+                                </button>
+
+                                {showHouseholdMenu && (
+                                    <div
+                                        className="position-absolute end-0 mt-2 p-3 bg-white border rounded shadow-sm text-dark"
+                                        style={{ minWidth: '240px', zIndex: 10000 }}
+                                    >
+                                        <div className="mb-2 fw-bold">Households</div>
+
+                                        <div className="d-flex flex-column gap-1 mb-3">
+                                            {households.map(h => (
+                                                <div key={h.id} className="d-flex align-items-center gap-1">
+                                                    <button
+                                                        className={`btn btn-sm text-start flex-grow-1 ${String(h.id) === String(currentHouseholdId) ? 'btn-primary' : 'btn-outline-secondary'}`}
+                                                        onClick={() => {
+                                                            switchHousehold(h.id);
+                                                            setShowHouseholdMenu(false);
+                                                        }}
+                                                    >
+                                                        {h.name}{h.is_default ? ' (default)' : ''}
+                                                    </button>
+                                                    {h.is_default && (
+                                                        <button
+                                                            className="btn btn-sm btn-outline-secondary"
+                                                            title="Rename household"
+                                                            onClick={() => openRenameModal(h)}
+                                                        >
+                                                            <i className="bi bi-pencil"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <hr className="my-3" />
+
+                                        <button
+                                            className="btn btn-sm btn-outline-primary w-100"
+                                            onClick={openInviteModal}
+                                        >
+                                            <i className="bi bi-person-plus me-1"></i>
+                                            Invite to current household
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <button
+                                title="Log out"
+                                className="btn btn-sm btn-outline-light"
+                                onClick={logout}
+                            >
+                                <i className="bi bi-box-arrow-right"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
-            </div>
-            <div className="container py-5">
-                {/* KPIs */}
-                <div className={`collapsible-section ${!showKPIs ? 'collapsible-hidden' : ''}`}>
-                    <h2 className="mb-4">KPIs</h2>
-                    <div className="mb-4">
-                        <div className="row mb-4 g-3">
+            </div >
+            <div className="container py-5 app-root-shell">
+                <div className={`layout-with-sidebar ${showFiltersPanel ? 'drawer-open' : 'drawer-collapsed'}`}>
+                    <div className="content-main">
+                        {/* KPIs */}
+                        <div className={`collapsible-section ${!showKPIs ? 'collapsible-hidden' : ''}`}>
+                            <h2 className="mb-3">Key Performance Indicators</h2>
+                            <h6 className="text-danger fw-bold fs-6 mb-3">{displayDateRangeText}</h6>
+                            <div className="mb-4">
+                                <div className="row mb-2 g-2">
 
-                            <div className="col-md-3">
-                                <div className="card text-white bg-success h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Net Income</h5>
-                                        <p className="card-text display-6">${totalIncome.toFixed(2)}</p>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-success h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Total Income</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalIncome.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-info h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Current Assets</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalAsset.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-danger h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Total Liability</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalLiability.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-md-3">
+                                        <div className="card text-white bg-secondary h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Total Expenses</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalExpense.toFixed(2)}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="col-md-3">
-                                <div className="card text-white bg-info h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Current Assets</h5>
-                                        <p className="card-text display-6">${totalAsset.toFixed(2)}</p>
+
+                                <div className="row mb-2 g-2">
+                                    <div className="col-md-12">
+                                        <div className="card text-white bg-dark h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Ending Balance</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${lastBalance.toFixed(2)}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="col-md-3">
-                                <div className="card text-white bg-danger h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Total Liability</h5>
-                                        <p className="card-text display-6">${totalLiability.toFixed(2)}</p>
+                                <div className="row g-2 align-items-stretch">
+                                    <div className="col-12 col-xl-8">
+                                        <div className="chart-card w-100" style={{ minHeight: 320 }}>
+                                            <div className="d-flex align-items-center justify-content-between px-2 pt-2 mb-1">
+                                                <small className="text-muted fw-semibold">Costs / Income vs. Time</small>
+                                            </div>
+                                            <NetTotalChart data={runningNetTotalData} />
+                                        </div>
+                                    </div>
+                                    <div className="col-12 col-xl-4 d-flex align-items-stretch">
+                                        <div className="chart-card w-100" style={{ minHeight: 320 }}>
+                                            <div className="d-flex align-items-center justify-content-between px-2 pt-2 mb-1">
+                                                <small className="text-muted fw-semibold">Costs / Income vs. Groups</small>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-link btn-sm p-0"
+                                                    title={pieChartGroupBy === 'type' ? 'Group by Category' : 'Group by Type'}
+                                                    onClick={() => setPieChartGroupBy(prev => prev === 'type' ? 'category' : 'type')}
+                                                    style={{ color: '#0d6efd', lineHeight: 1 }}
+                                                    aria-label={pieChartGroupBy === 'type' ? 'Group by Category' : 'Group by Type'}
+                                                >
+                                                    <i className={`bi ${pieChartGroupBy === 'type' ? 'bi-toggle2-on' : 'bi-toggle2-off'}`}></i>
+                                                </button>
+                                            </div>
+                                            <CostBreakdownChart data={pieChartSource} groupBy={pieChartGroupBy} />
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="col-md-3">
-                                <div className="card text-white bg-secondary h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Total Expenses</h5>
-                                        <p className="card-text display-6">${totalExpense.toFixed(2)}</p>
-                                    </div>
-                                </div>
+                                <hr className="my-2" />
                             </div>
                         </div>
 
-                        <div className="row mb-4 g-3">
-
-                            <div className="col-md-12">
-                                <div className="card text-white bg-dark h-100 text-center">
-                                    <div className="card-body d-flex flex-column justify-content-center">
-                                        <h5 className="card-title">Net Total</h5>
-                                        <p className="card-text display-6">${netTotal.toFixed(2)}</p>
+                        <div className={`collapsible-section ${!showForm ? 'collapsible-hidden' : ''}`}>
+                            <>
+                                <h2 className="mb-4">Add Records</h2>
+                                <form onSubmit={handleSubmit} className="row m-4 g-3">
+                                    <div className="col-md-6 mb-4">
+                                        <label className="form-label">Name</label>
+                                        <input
+                                            name="name"
+                                            className="form-control"
+                                            placeholder="e.g. Rent"
+                                            value={form.name}
+                                            onChange={handleChange}
+                                            required
+                                        />
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                        {/* Line Chart */}
-                        <NetTotalChart data={runningNetTotalData} />
 
-                        <hr className="my-5" />
-                    </div>
-                </div>
-                {/* Add Records Form */}
-                <div className={`collapsible-section ${!showForm ? 'collapsible-hidden' : ''}`}>
-                    <>
-                        <h2 className="mb-4">Add Records</h2>
-                        <form onSubmit={handleSubmit} className="row m-4 g-3">
-
-                            <div className="col-md-6 mb-4">
-                                <label className="form-label">Name</label>
-                                <input
-                                    name="name"
-                                    className="form-control"
-                                    placeholder="e.g. Rent"
-                                    value={form.name}
-                                    onChange={handleChange}
-                                    required
-                                />
-                            </div>
-
-                            <div className="col-md-6">
-                                <label className="form-label">Amount</label>
-                                <div className="input-group">
-                                    <div className="input-group-prepend">
-                                        <span className="input-group-text">$</span>
+                                    <div className="col-md-6">
+                                        <label className="form-label">Amount</label>
+                                        <div className="input-group">
+                                            <div className="input-group-prepend">
+                                                <span className="input-group-text">$</span>
+                                            </div>
+                                            <input
+                                                name="amount"
+                                                type="number"
+                                                step="5.0"
+                                                className="form-control"
+                                                value={form.amount}
+                                                onChange={handleChange}
+                                                required
+                                            />
+                                        </div>
                                     </div>
-                                    <input
-                                        name="amount"
-                                        type="number"
-                                        step="5.0"
-                                        className="form-control"
-                                        value={form.amount}
-                                        onChange={handleChange}
-                                        required
-                                    />
-                                </div>
-                            </div>
 
-                            <div className="col-8">
-                                <label className="form-label">Description</label>
-                                <input
-                                    name="description"
-                                    className="form-control"
-                                    placeholder="e.g. Monthly rent for apartment"
-                                    value={form.description}
-                                    onChange={handleChange}
-                                />
-                            </div>
+                                    <div className="col-8">
+                                        <label className="form-label">Description</label>
+                                        <input
+                                            name="description"
+                                            className="form-control"
+                                            placeholder="e.g. Monthly rent for apartment"
+                                            value={form.description}
+                                            onChange={handleChange}
+                                        />
+                                    </div>
 
-                            <div className="col-md-4">
-                                <label className="form-label">Due Date</label>
-                                <div className="form-date" style={{ position: 'relative' }}>
-                                    <input
-                                        type="date"
-                                        name="due_date"
-                                        className="form-control"
-                                        value={form.due_date}
-                                        onChange={handleChange}
-                                        required
-                                        ref={addDueDateRef}
-                                        style={{ paddingRight: '36px' }}
-                                    />
-                                    <i
-                                        className="bi bi-calendar3"
-                                        title="Open date picker"
-                                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'auto', cursor: 'pointer', color: '#6c757d' }}
-                                        onClick={() => {
-                                            if (addDueDateRef.current) {
-                                                try {
-                                                    addDueDateRef.current.showPicker?.();
-                                                } catch (e) {
-                                                    addDueDateRef.current.focus();
-                                                }
-                                                addDueDateRef.current.focus();
+                                    <div className="col-md-4">
+                                        <label className="form-label">Due Date</label>
+                                        <div className="form-date" style={{ position: 'relative' }}>
+                                            <input
+                                                type="date"
+                                                name="due_date"
+                                                className="form-control"
+                                                value={form.due_date}
+                                                onChange={handleChange}
+                                                required
+                                                ref={addDueDateRef}
+                                                style={{ paddingRight: '36px' }}
+                                            />
+                                            <i
+                                                className="bi bi-calendar3"
+                                                title="Open date picker"
+                                                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'auto', cursor: 'pointer', color: '#6c757d' }}
+                                                onClick={() => {
+                                                    if (addDueDateRef.current) {
+                                                        try {
+                                                            addDueDateRef.current.showPicker?.();
+                                                        } catch (e) {
+                                                            addDueDateRef.current.focus();
+                                                        }
+                                                        addDueDateRef.current.focus();
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Type</label>
+                                        <select
+                                            name="type"
+                                            className="form-select"
+                                            value={form.type}
+                                            onChange={handleChange}
+                                            required
+                                        >
+                                            {TRANSACTION_TYPES.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>
+                                                    {opt.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Category</label>
+                                        <select
+                                            name="category"
+                                            className="form-select"
+                                            value={form.category}
+                                            onChange={handleChange}
+                                        >
+                                            {TRANSACTION_CATEGORIES.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>
+                                                    {opt.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Household</label>
+                                        <select
+                                            name="household"
+                                            className="form-select"
+                                            value={form.household || currentHouseholdId || ''}
+                                            onChange={handleChange}
+                                            required
+                                        >
+                                            {households.map(h => (
+                                                <option key={h.id} value={h.id}>{h.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label">Recurrence</label>
+                                        <select
+                                            value={form.recurrence}
+                                            onChange={(e) =>
+                                                setForm({ ...form, recurrence: e.target.value })
                                             }
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                            <div className="col-md-4">
-                                <label className="form-label">Type</label>
-                                <select
-                                    name="type"
-                                    className="form-select"
-                                    value={form.type}
-                                    onChange={handleChange}
-                                    required
-                                >
-                                    {TRANSACTION_TYPES.map((opt) => (
-                                        <option key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="col-md-4">
-                                <label className="form-label">Category</label>
-                                <select
-                                    name="category"
-                                    className="form-select"
-                                    value={form.category}
-                                    onChange={handleChange}
-                                >
-                                    {TRANSACTION_CATEGORIES.map((opt) => (
-                                        <option key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="col-md-4">
-                                <label className="form-label">Recurrence</label>
-                                <select
-                                    value={form.recurrence}
-                                    onChange={(e) =>
-                                        setForm({ ...form, recurrence: e.target.value })
-                                    }
-                                    className="form-select"
-                                    required
-                                >
-                                    <option value="">-- Select Recurrence --</option>
-                                    <option value="none">One-Time</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="biweekly">Biweekly</option>
-                                    <option value="monthly">Monthly</option>
-                                    <option value="bimonthly">Bimonthly</option>
-                                    <option value="annually">Annually</option>
-                                </select>
-                            </div>
+                                            className="form-select"
+                                            required
+                                        >
+                                            <option value="">-- Select Recurrence --</option>
+                                            <option value="none">One-Time</option>
+                                            <option value="daily">Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="biweekly">Biweekly</option>
+                                            <option value="monthly">Monthly</option>
+                                            <option value="bimonthly">Bimonthly</option>
+                                            <option value="annually">Annually</option>
+                                        </select>
+                                    </div>
 
-                            <div className="col-12">
-                                <button type="submit" className="btn btn-primary">
-                                    Submit
+                                    <div className="col-12">
+                                        <button type="submit" className="btn btn-primary">
+                                            Submit
+                                        </button>
+                                    </div>
+                                </form>
+                                <hr className="my-3" />
+                            </>
+                        </div>
+
+                        <div className={`collapsible-section ${!showList ? 'collapsible-hidden' : ''}`}>
+                            <>
+                                <h2 className="mb-4 d-flex justify-content-between align-items-center">
+                                    <span>List</span>
+                                </h2>
+
+                                <div className="row m-4">
+                                    {displayedBills.length === 0 ? (
+                                        <div className="col-12">
+                                            <div className="alert alert-light border text-center mb-0">
+                                                No records match the current filters.
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        displayedBills.map((bill) => (
+                                            <div key={bill.id} className={now.isAfter(bill.due_date) && bill.type !== 'asset' && bill.reconciled === false ? 'card mb-3 position-relative overdue' : bill.reconciled === true ? 'card mb-3 position-relative reconciled' : 'card mb-3 position-relative'}>
+                                                <div className="card-view">
+                                                    <div className="position-absolute top-0 end-0 m-2 d-flex gap-2">
+                                                        <button
+                                                            onClick={() => handleEdit(bill)}
+                                                            className="btn btn-light btn-sm"
+                                                            title="Edit Bill"
+                                                            aria-label="Edit Bill"
+                                                        >
+                                                            <i className="bi bi-pencil"></i>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => handleDelete(bill)}
+                                                            className="btn delete-btn btn-light btn-sm"
+                                                            title="Delete Bill"
+                                                            aria-label="Delete Bill"
+                                                        >
+                                                            <i className="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+
+                                                    <h5 className="card-title mb-0">
+                                                        {bill.name} — ${bill.amount.toFixed(2)}
+                                                    </h5>
+
+                                                    <h6 className="text-secondary me-2">{format(parseISO(bill.due_date), 'MM/dd/yyyy')}</h6>
+                                                    <p className="card-text mt-2">{bill.description}</p>
+
+                                                    <div className="d-flex align-items-center flex-wrap gap-2">
+                                                        <span className={`badge ${getTypeBadgeClass(bill.type)}`}>
+                                                            {getTypeLabel(bill.type)}
+                                                        </span>
+
+                                                        <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
+                                                            {getCategoryLabel(bill.category)}
+                                                        </span>
+
+                                                        {bill.recurrence !== 'none' && (
+                                                            <span className="badge bg-secondary ms-2">
+                                                                {bill.recurrence.charAt(0).toUpperCase() + bill.recurrence.slice(1)}
+                                                            </span>
+                                                        )}
+
+                                                        <span className="form-check d-flex align-items-center ms-auto">
+                                                            <input
+                                                                className="form-check-input me-2"
+                                                                type="checkbox"
+                                                                id={`reconciled-${bill.id}`}
+                                                                checked={bill.reconciled}
+                                                                onChange={() => handleToggleReconciled(bill)}
+                                                            />
+                                                            <label className="form-check-label" htmlFor={`reconciled-${bill.id}`}>
+                                                                Reconciled
+                                                            </label>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </>
+                        </div>
+                    </div>
+
+                    <div className={`filter-drawer ${showFiltersPanel ? 'open' : 'collapsed'}`}>
+                        <div className="filter-rail">
+                            <button
+                                type="button"
+                                className="filter-toggle-btn"
+                                title={showFiltersPanel ? 'Hide filters' : 'Show filters'}
+                                onClick={() => setShowFiltersPanel(prev => !prev)}
+                                aria-label={showFiltersPanel ? 'Hide filters' : 'Show filters'}
+                            >
+                                <i className={`bi ${showFiltersPanel ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
+                            </button>
+                            <span className="filter-rail-label" onClick={() => setShowFiltersPanel(prev => !prev)} style={{ cursor: 'pointer' }}>
+                                {showFiltersPanel ? 'Hide Filters' : 'Show Filters'}
+                                <i className={`bi ${showFiltersPanel ? 'bi-chevron-up' : 'bi-chevron-down'}`}></i>
+                            </span>
+                        </div>
+
+                        <aside className="filter-drawer-panel">
+                            <div className="d-flex justify-content-between align-items-center mb-3">
+                                <h5 className="mb-0">Filters</h5>
+                                <button
+                                    className="btn btn-sm btn-outline-secondary"
+                                    onClick={clearFilter}
+                                    type="button"
+                                >
+                                    Clear
                                 </button>
                             </div>
-                        </form>
-                        <hr className="my-5" />
-                    </>
-                </div>
-                {/* Records List Header and Filters for Card View*/}
-                <div className={`collapsible-section ${!showList ? 'collapsible-hidden' : ''}`}>
-                    <>
-                        <h2 className="mb-4 d-flex justify-content-between">
-                            <span>List</span>
-                            <div className="d-flex justify-content-end gap-2">
 
+                            <div className="mb-3">
+                                <label className="form-label">Search</label>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    placeholder="Name, description, type..."
+                                />
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Type</label>
+                                <select
+                                    className="form-select"
+                                    value={selectedTypeFilter}
+                                    onChange={(e) => setSelectedTypeFilter(e.target.value)}
+                                >
+                                    <option value="">All Types</option>
+                                    {TRANSACTION_TYPES.filter(opt => opt.value).map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Category</label>
+                                <select
+                                    className="form-select"
+                                    value={selectedCategoryFilter}
+                                    onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                                >
+                                    <option value="">All Categories</option>
+                                    {TRANSACTION_CATEGORIES.filter(opt => opt.value).map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Sort</label>
+                                <div className="input-group">
+                                    <select
+                                        className="form-select"
+                                        value={sortField}
+                                        onChange={(e) => setSortField(e.target.value)}
+                                    >
+                                        <option value="due_date">Due Date</option>
+                                        <option value="amount">Cost</option>
+                                        <option value="date_added">Date Added</option>
+                                    </select>
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline-secondary"
+                                        title={sortAsc ? 'Sort descending' : 'Sort ascending'}
+                                        onClick={() => setSortAsc(prev => !prev)}
+                                    >
+                                        <i className={`bi ${sortAsc ? 'bi-sort-up' : 'bi-sort-down'}`}></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="mb-3">
                                 <button
-                                    className={`btn btn-sm ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
+                                    type="button"
+                                    className={`btn btn-sm w-100 ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
                                     onClick={() => setShowReconciled(prev => !prev)}
                                 >
                                     {showReconciled ? 'Hide Reconciled' : 'Show Reconciled'}
                                 </button>
-                                <button
-                                    className="btn btn-sm btn-primary"
-                                    onClick={() => setSortAsc((prev) => !prev)}
-                                    title={`Sort by Due Date (${sortAsc ? 'Desc' : 'Asc'})`}
-                                >
-                                    <i className={`bi ${sortAsc ? 'bi-sort-down' : 'bi-sort-up'}`}></i>
-                                    <span className="ms-1">Due Date</span>
-                                </button>
                             </div>
-                        </h2>
-                        {/* Bills List Card View Section */}
-                        <div className="row d-flex m-4 flex-wrap mb-3 bg-light rounded border p-2">
-                            <h5>Date Filters</h5>
-                            <div className="col-md-3">
-                                <label>Start Date</label>
+
+                            <div className="mb-3">
+                                <label className="form-label">Start Date</label>
                                 <div style={{ position: 'relative' }}>
                                     <input
                                         type="date"
@@ -908,8 +1348,9 @@ export default function BillApp() {
                                     />
                                 </div>
                             </div>
-                            <div className="col-md-3">
-                                <label>End Date</label>
+
+                            <div className="mb-3">
+                                <label className="form-label">End Date</label>
                                 <div style={{ position: 'relative' }}>
                                     <input
                                         type="date"
@@ -933,92 +1374,15 @@ export default function BillApp() {
                                 </div>
                             </div>
 
-                            {/* Quick Range Buttons */}
-                            <div className="d-flex flex-wrap gap-2 mt-4 col-md-6">
-                                <button className="btn btn-outline-primary" onClick={() => setDateRange(30)}>Next 30 Days</button>
-                                <button className="btn btn-outline-primary" onClick={() => setDateRange(60)}>Next 60 Days</button>
-                                <button className="btn btn-outline-success" onClick={filterUntilNextIncome}>Until Next Income</button>
-                                <button className="btn btn-outline-success" onClick={clearFilter}>Clear</button>
+                            <div className="d-flex flex-wrap gap-2">
+                                <button className="btn btn-sm btn-outline-primary" onClick={() => setDateRange(30)} type="button">Next 30 Days</button>
+                                <button className="btn btn-sm btn-outline-primary" onClick={() => setDateRange(60)} type="button">Next 60 Days</button>
+                                <button className="btn btn-sm btn-outline-success" onClick={filterUntilNextIncome} type="button">Until Next Income</button>
                             </div>
-
-                        </div>
-                        < div className="row m-4" >
-                            {
-                                displayedBills.map((bill) => (
-                                    <div key={bill.id} className={now.isAfter(bill.due_date) && bill.type != 'asset' && bill.reconciled == false ? "card mb-3 position-relative overdue" : bill.reconciled == true ? "card mb-3 position-relative reconciled" : "card mb-3 position-relative"}>
-                                        <div className="card-view">
-                                            <div className="position-absolute top-0 end-0 m-2 d-flex gap-2">
-                                                {/* Edit button */}
-                                                <button
-                                                    onClick={() => handleEdit(bill)}
-                                                    className="btn btn-light btn-sm"
-                                                    title="Edit Bill"
-                                                    aria-label="Edit Bill"
-                                                >
-                                                    <i className="bi bi-pencil"></i>
-                                                </button>
-
-                                                {/* Delete button */}
-                                                <button
-                                                    onClick={() => handleDelete(bill)}
-                                                    className="btn delete-btn btn-light btn-sm"
-                                                    title="Delete Bill"
-                                                    aria-label="Delete Bill"
-                                                >
-                                                    <i className="bi bi-trash"></i>
-                                                </button>
-
-                                            </div>
-
-
-                                            <h5 className="card-title mb-0">
-                                                {bill.name} — ${bill.amount.toFixed(2)}
-                                            </h5>
-
-                                            <h6 className="text-secondary me-2">{format(parseISO(bill.due_date), 'MM/dd/yyyy')}</h6>
-                                            <p className="card-text mt-2">{bill.description}</p>
-
-                                            {/* Bottom bar of Card View */}
-                                            <div className="d-flex align-items-center flex-wrap gap-2">
-                                                {/* Type badge */}
-                                                <span className={`badge ${getTypeBadgeClass(bill.type)}`}>
-                                                    {getTypeLabel(bill.type)}
-                                                </span>
-
-                                                {/* Category badge */}
-                                                <span className={`badge ${getCategoryBadgeClass(bill.category)}`}>
-                                                    {getCategoryLabel(bill.category)}
-                                                </span>
-
-                                                {/* Recurrence Badge */}
-                                                {bill.recurrence !== 'none' && (
-                                                    <span className="badge bg-secondary ms-2">
-                                                        {bill.recurrence.charAt(0).toUpperCase() + bill.recurrence.slice(1)}
-                                                    </span>
-                                                )}
-
-                                                {/* Reconciled Checkbox */}
-                                                <span className="form-check d-flex align-items-center ms-auto">
-                                                    <input
-                                                        className="form-check-input me-2"
-                                                        type="checkbox"
-                                                        id={`reconciled-${bill.id}`}
-                                                        checked={bill.reconciled}
-                                                        onChange={() => handleToggleReconciled(bill)}
-                                                    />
-                                                    <label className="form-check-label" htmlFor={`reconciled-${bill.id}`}>
-                                                        Reconciled
-                                                    </label>
-                                                </span>
-                                            </div>
-
-                                        </div>
-                                    </div>
-                                ))
-                            }
-                        </div>
-                    </>
+                        </aside>
+                    </div>
                 </div>
+
                 {/* Delete confirmation modal */}
                 {showDeleteModal && (
                     <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
@@ -1117,6 +1481,104 @@ export default function BillApp() {
                             <button className="btn btn-link btn-sm" onClick={toast.onUndo}>
                                 Undo
                             </button>
+                        </div>
+                    </div>
+                )}
+
+                {showRenameModal && (
+                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                        <div className="modal-dialog" role="document">
+                            <div className="modal-content">
+                                <div className="modal-header bg-primary text-white">
+                                    <h5 className="modal-title">Rename Household</h5>
+                                    <button
+                                        type="button"
+                                        className="btn-close"
+                                        onClick={() => setShowRenameModal(false)}
+                                    />
+                                </div>
+                                <form onSubmit={handleRenameSubmit}>
+                                    <div className="modal-body">
+                                        <label htmlFor="householdName" className="form-label">Household Name</label>
+                                        <input
+                                            type="text"
+                                            id="householdName"
+                                            className="form-control"
+                                            value={renameValue}
+                                            onChange={(e) => setRenameValue(e.target.value)}
+                                            autoFocus
+                                            required
+                                        />
+                                    </div>
+                                    <div className="modal-footer">
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            onClick={() => setShowRenameModal(false)}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button type="submit" className="btn btn-primary">
+                                            Save
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Invite Modal */}
+                {showInviteModal && (
+                    <div className="modal show fade d-block mt-5" tabIndex="-1" role="dialog">
+                        <div className="modal-dialog" role="document">
+                            <div className="modal-content">
+                                <div className="modal-header bg-primary text-white">
+                                    <h5 className="modal-title">Invite to Household</h5>
+                                    <button
+                                        type="button"
+                                        className="btn-close"
+                                        onClick={() => setShowInviteModal(false)}
+                                    />
+                                </div>
+                                <form onSubmit={handleInviteSubmit}>
+                                    <div className="modal-body">
+                                        <label htmlFor="inviteUsername" className="form-label">Username</label>
+                                        <input
+                                            type="text"
+                                            id="inviteUsername"
+                                            className="form-control"
+                                            value={inviteUsername}
+                                            onChange={(e) => setInviteUsername(e.target.value)}
+                                            autoFocus
+                                            required
+                                        />
+
+                                        {inviteError && (
+                                            <div className="alert alert-danger py-2 mt-3 mb-0">
+                                                {inviteError}
+                                            </div>
+                                        )}
+                                        {inviteSuccess && (
+                                            <div className="alert alert-success py-2 mt-3 mb-0">
+                                                {inviteSuccess}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="modal-footer">
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            onClick={() => setShowInviteModal(false)}
+                                        >
+                                            Close
+                                        </button>
+                                        <button type="submit" className="btn btn-primary">
+                                            Invite
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 )}
