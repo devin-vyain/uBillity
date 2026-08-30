@@ -3,7 +3,7 @@ import api from './api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
 import { format, parseISO } from 'date-fns';
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import moment from 'moment';
 import { useAuth } from './context/AuthContext';
 import LoginPage from './LoginPage';
@@ -29,8 +29,8 @@ const NetTotalChart = React.memo(({ data }) => {
     }, [data]);
 
     return (
-        <div className='d-flex p-2' style={{ width: '100%', height: 300 }}>
-            <ResponsiveContainer width="100%" height={300}>
+        <div className='d-flex p-2' style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={data}>
                     <CartesianGrid stroke="#ccc" />
                     <XAxis
@@ -138,6 +138,69 @@ const NetTotalChart = React.memo(({ data }) => {
                     />
                     <Line type="monotone" dataKey="balance" stroke="#4caf50" strokeWidth={3} dot={false} />
                 </LineChart>
+            </ResponsiveContainer>
+        </div>
+    );
+});
+
+const CostBreakdownChart = React.memo(({ data, groupBy }) => {
+    const chartData = useMemo(() => {
+        if (!data || !data.length) return [];
+
+        const grouped = data.reduce((acc, entry) => {
+            const key = groupBy === 'type' ? entry.type : entry.category;
+            const label = groupBy === 'type' ? getTypeLabel(key) : getCategoryLabel(key);
+            const nextKey = label || key || 'Uncategorized';
+
+            if (!acc[nextKey]) {
+                acc[nextKey] = 0;
+            }
+
+            acc[nextKey] += Number(entry.amount || 0);
+            return acc;
+        }, {});
+
+        return Object.entries(grouped).map(([name, value]) => ({ name, value }));
+    }, [data, groupBy]);
+
+    const totalValue = useMemo(() => chartData.reduce((sum, entry) => sum + Number(entry.value || 0), 0), [chartData]);
+    const COLORS = ['#0d6efd', '#198754', '#fd7e14', '#dc3545', '#6c757d', '#20c997', '#e83e8c', '#6610f2'];
+    const groupLabel = groupBy === 'type' ? 'Type' : 'Category';
+
+    return (
+        <div className="chart-card pie-chart-card" style={{ position: 'relative', width: '100%', height: 260 }}>
+            <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                    <Tooltip
+                        formatter={(value, name, props) => {
+                            const entry = props.payload;
+                            const groupName = entry?.name || name || 'N/A';
+                            const numericValue = Number(value || 0);
+                            const formattedValue = new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                                maximumFractionDigits: 0,
+                            }).format(numericValue);
+                            const percent = totalValue > 0 ? ((numericValue / totalValue) * 100).toFixed(0) : '0';
+                            return [`${groupName}: ${formattedValue} (${percent}%)`];
+                        }}
+                        labelFormatter={(value) => value}
+                    />
+                    <Pie
+                        data={chartData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={42}
+                        outerRadius={82}
+                        paddingAngle={2}
+                        label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                        labelLine={true}
+                    >
+                        {chartData.map((entry, index) => (
+                            <Cell key={`${entry.name}-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                    </Pie>
+                </PieChart>
             </ResponsiveContainer>
         </div>
     );
@@ -331,7 +394,9 @@ function BillAppContent() {
     const [toast, setToast] = useState(null);
 
     const [bills, setBills] = useState([]);
+    const [sortField, setSortField] = useState('due_date');
     const [sortAsc, setSortAsc] = useState(true);
+    const [pieChartGroupBy, setPieChartGroupBy] = useState('type');
 
     const [form, setForm] = useState({
         name: '', description: '', amount: '', type: '', category: '',
@@ -416,10 +481,22 @@ function BillAppContent() {
         setSearchTerm('');
     };
 
+    const getSortValue = (bill, field) => {
+        switch (field) {
+            case 'amount':
+                return Number(bill.amount) || 0;
+            case 'date_added':
+                return Number(bill.id) || 0;
+            case 'due_date':
+            default:
+                return new Date(bill.due_date).getTime();
+        }
+    };
+
     const sortedBills = [...bills].sort((a, b) => {
-        return sortAsc
-            ? new Date(a.due_date) - new Date(b.due_date)
-            : new Date(b.due_date) - new Date(a.due_date);
+        const aVal = getSortValue(a, sortField);
+        const bVal = getSortValue(b, sortField);
+        return sortAsc ? aVal - bVal : bVal - aVal;
     });
 
     const filteredByDate = sortedBills.filter(bill => {
@@ -443,6 +520,10 @@ function BillAppContent() {
 
         return matchesType && matchesCategory && matchesSearch;
     });
+
+    const pieChartSource = useMemo(() => {
+        return showReconciled ? filteredBySearchAndMeta : filteredBySearchAndMeta.filter(bill => !bill.reconciled);
+    }, [filteredBySearchAndMeta, showReconciled]);
 
     // Always apply the date filter; when reconciled bills are hidden,
     // filter the already date-filtered list by reconciled status.
@@ -755,7 +836,7 @@ function BillAppContent() {
                             </button>
                             <button
                                 title="Show/hide list"
-                                className={`btn btn-sm ${showList ? 'btn-primary' : 'btn-outline-light'}`}
+                                className={`btn btn-sm me-3 ${showList ? 'btn-primary' : 'btn-outline-light'}`}
                                 onClick={() => setShowList(prev => !prev)}
                             >
                                 <i className="bi bi-card-list"></i>
@@ -801,7 +882,7 @@ function BillAppContent() {
                                             ))}
                                         </div>
 
-                                        <hr className="my-2" />
+                                        <hr className="my-3" />
 
                                         <button
                                             className="btn btn-sm btn-outline-primary w-100"
@@ -823,63 +904,90 @@ function BillAppContent() {
                         </div>
                     </div>
                 </div>
-            </div>
+            </div >
             <div className="container py-5 app-root-shell">
                 <div className={`layout-with-sidebar ${showFiltersPanel ? 'drawer-open' : 'drawer-collapsed'}`}>
                     <div className="content-main">
                         {/* KPIs */}
                         <div className={`collapsible-section ${!showKPIs ? 'collapsible-hidden' : ''}`}>
-                            <h2 className="mb-4">KPIs</h2>
+                            <h2 className="mb-3">Key Performance Indicators</h2>
                             <h6 className="text-danger fw-bold fs-6 mb-3">{displayDateRangeText}</h6>
                             <div className="mb-4">
-                                <div className="row mb-4 g-3">
+                                <div className="row mb-2 g-2">
 
                                     <div className="col-md-3">
-                                        <div className="card text-white bg-success h-100 text-center">
-                                            <div className="card-body d-flex flex-column justify-content-center">
-                                                <h5 className="card-title">Total Income</h5>
-                                                <p className="card-text display-6">${totalIncome.toFixed(2)}</p>
+                                        <div className="card text-white bg-success h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Total Income</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalIncome.toFixed(2)}</p>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="col-md-3">
-                                        <div className="card text-white bg-info h-100 text-center">
-                                            <div className="card-body d-flex flex-column justify-content-center">
-                                                <h5 className="card-title">Current Assets</h5>
-                                                <p className="card-text display-6">${totalAsset.toFixed(2)}</p>
+                                        <div className="card text-white bg-info h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Current Assets</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalAsset.toFixed(2)}</p>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="col-md-3">
-                                        <div className="card text-white bg-danger h-100 text-center">
-                                            <div className="card-body d-flex flex-column justify-content-center">
-                                                <h5 className="card-title">Total Liability</h5>
-                                                <p className="card-text display-6">${totalLiability.toFixed(2)}</p>
+                                        <div className="card text-white bg-danger h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Total Liability</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalLiability.toFixed(2)}</p>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="col-md-3">
-                                        <div className="card text-white bg-secondary h-100 text-center">
-                                            <div className="card-body d-flex flex-column justify-content-center">
-                                                <h5 className="card-title">Total Expenses</h5>
-                                                <p className="card-text display-6">${totalExpense.toFixed(2)}</p>
+                                        <div className="card text-white bg-secondary h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Total Expenses</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${totalExpense.toFixed(2)}</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="row mb-4 g-3">
+                                <div className="row mb-2 g-2">
                                     <div className="col-md-12">
-                                        <div className="card text-white bg-dark h-100 text-center">
-                                            <div className="card-body d-flex flex-column justify-content-center">
-                                                <h5 className="card-title">Ending Balance</h5>
-                                                <p className="card-text display-6">${lastBalance.toFixed(2)}</p>
+                                        <div className="card text-white bg-dark h-100 text-center" style={{ minHeight: '90px' }}>
+                                            <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
+                                                <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Ending Balance</h6>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${lastBalance.toFixed(2)}</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                                <NetTotalChart data={runningNetTotalData} />
-                                <hr className="my-5" />
+                                <div className="row g-2 align-items-stretch">
+                                    <div className="col-12 col-xl-8">
+                                        <div className="chart-card w-100" style={{ minHeight: 320 }}>
+                                            <div className="d-flex align-items-center justify-content-between px-2 pt-2 mb-1">
+                                                <small className="text-muted fw-semibold">Costs / Income vs. Time</small>
+                                            </div>
+                                            <NetTotalChart data={runningNetTotalData} />
+                                        </div>
+                                    </div>
+                                    <div className="col-12 col-xl-4 d-flex align-items-stretch">
+                                        <div className="chart-card w-100" style={{ minHeight: 320 }}>
+                                            <div className="d-flex align-items-center justify-content-between px-2 pt-2 mb-1">
+                                                <small className="text-muted fw-semibold">Costs / Income vs. Groups</small>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-link btn-sm p-0"
+                                                    title={pieChartGroupBy === 'type' ? 'Group by Category' : 'Group by Type'}
+                                                    onClick={() => setPieChartGroupBy(prev => prev === 'type' ? 'category' : 'type')}
+                                                    style={{ color: '#0d6efd', lineHeight: 1 }}
+                                                    aria-label={pieChartGroupBy === 'type' ? 'Group by Category' : 'Group by Type'}
+                                                >
+                                                    <i className={`bi ${pieChartGroupBy === 'type' ? 'bi-toggle2-on' : 'bi-toggle2-off'}`}></i>
+                                                </button>
+                                            </div>
+                                            <CostBreakdownChart data={pieChartSource} groupBy={pieChartGroupBy} />
+                                        </div>
+                                    </div>
+                                </div>
+                                <hr className="my-2" />
                             </div>
                         </div>
 
@@ -1030,7 +1138,7 @@ function BillAppContent() {
                                         </button>
                                     </div>
                                 </form>
-                                <hr className="my-5" />
+                                <hr className="my-3" />
                             </>
                         </div>
 
@@ -1038,16 +1146,6 @@ function BillAppContent() {
                             <>
                                 <h2 className="mb-4 d-flex justify-content-between align-items-center">
                                     <span>List</span>
-                                    <div className="d-flex justify-content-end gap-2 flex-wrap">
-                                        <button
-                                            className="btn btn-sm btn-primary"
-                                            onClick={() => setSortAsc((prev) => !prev)}
-                                            title={`Sort by Due Date (${sortAsc ? 'Desc' : 'Asc'})`}
-                                        >
-                                            <i className={`bi ${sortAsc ? 'bi-sort-down' : 'bi-sort-up'}`}></i>
-                                            <span className="ms-1">Due Date</span>
-                                        </button>
-                                    </div>
                                 </h2>
 
                                 <div className="row m-4">
@@ -1136,6 +1234,10 @@ function BillAppContent() {
                             >
                                 <i className={`bi ${showFiltersPanel ? 'bi-chevron-right' : 'bi-chevron-left'}`}></i>
                             </button>
+                            <span className="filter-rail-label" onClick={() => setShowFiltersPanel(prev => !prev)} style={{ cursor: 'pointer' }}>
+                                {showFiltersPanel ? 'Hide Filters' : 'Show Filters'}
+                                <i className={`bi ${showFiltersPanel ? 'bi-chevron-up' : 'bi-chevron-down'}`}></i>
+                            </span>
                         </div>
 
                         <aside className="filter-drawer-panel">
@@ -1187,6 +1289,29 @@ function BillAppContent() {
                                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                                     ))}
                                 </select>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Sort</label>
+                                <div className="input-group">
+                                    <select
+                                        className="form-select"
+                                        value={sortField}
+                                        onChange={(e) => setSortField(e.target.value)}
+                                    >
+                                        <option value="due_date">Due Date</option>
+                                        <option value="amount">Cost</option>
+                                        <option value="date_added">Date Added</option>
+                                    </select>
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline-secondary"
+                                        title={sortAsc ? 'Sort descending' : 'Sort ascending'}
+                                        onClick={() => setSortAsc(prev => !prev)}
+                                    >
+                                        <i className={`bi ${sortAsc ? 'bi-sort-up' : 'bi-sort-down'}`}></i>
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="mb-3">
