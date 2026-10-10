@@ -27,4 +27,5 @@ jobs:
         pip install -r requirements.txt
     - name: Run Tests
       run: |
+        cd /home/runner/work/uBillity/uBillity/uBillity
         python manage.py test
