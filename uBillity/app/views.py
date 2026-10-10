@@ -12,9 +12,6 @@ from rest_framework.exceptions import PermissionDenied
 from .models import HouseholdMembership
 import uuid
 
-debug = True
-
-
 class HouseholdViewSet(viewsets.ModelViewSet):
     serializer_class = HouseholdSerializer
     permission_classes = [IsAuthenticated]
@@ -150,9 +147,6 @@ class BillViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         delete_series = request.query_params.get('delete_series', 'false').lower() == 'true'
-        if debug:
-            print("Delete series param:", delete_series)
-
         if delete_series and instance.recurrence_id:
             self.get_queryset().filter(recurrence_id=instance.recurrence_id).delete()
         else:
