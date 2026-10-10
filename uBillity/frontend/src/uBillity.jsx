@@ -207,12 +207,17 @@ const CostBreakdownChart = React.memo(({ data, groupBy }) => {
 });
 
 // Extracted EditForm to top-level so it keeps a stable identity across renders.
-const EditForm = ({ editForm, setEditForm, editSeries, setEditSeries, handleUpdate }) => {
+const EditForm = ({ editForm, setEditForm, editSeries, setEditSeries, editError, handleUpdate }) => {
     const amountRef = useRef(null);
     const editDueDateRef = useRef(null);
 
     return (
-        <form onSubmit={handleUpdate}>
+        <form id="edit-bill-form" onSubmit={handleUpdate}>
+            {editError && (
+                <div className="alert alert-danger" role="alert" aria-live="polite">
+                    {editError}
+                </div>
+            )}
             {/* Name */}
             <div className="mb-3">
                 <label htmlFor="editName" className="form-label">Name</label>
@@ -673,15 +678,18 @@ function BillAppContent() {
     const [showEditModal, setShowEditModal] = useState(false);
     const [editForm, setEditForm] = useState({});
     const [editSeries, setEditSeries] = useState(false);
+    const [editError, setEditError] = useState('');
 
     const handleEdit = (bill) => {
         setEditForm(bill);
         setEditSeries(false);
+        setEditError('');
         setShowEditModal(true);
     };
 
     const handleUpdate = async (e) => {
         e?.preventDefault();
+        setEditError('');
         try {
             const url = editSeries
                 ? `bills/series/${editForm.recurrence_id}/`
@@ -691,7 +699,12 @@ function BillAppContent() {
             fetchBills();
             setShowEditModal(false);
         } catch (error) {
-            console.error('Failed to update bill:', error.response?.data || error.message);
+            const responseData = error.response?.data;
+            setEditError(
+                responseData?.detail ||
+                (responseData ? JSON.stringify(responseData) : error.message) ||
+                'The bill could not be updated.'
+            );
         }
     };
 
@@ -1444,6 +1457,7 @@ function BillAppContent() {
                                         setEditForm={setEditForm}
                                         editSeries={editSeries}
                                         setEditSeries={setEditSeries}
+                                        editError={editError}
                                         handleUpdate={handleUpdate}
                                     />
                                 </div>
@@ -1457,9 +1471,9 @@ function BillAppContent() {
                                         Cancel
                                     </button>
                                     <button
-                                        type="button"
+                                        type="submit"
+                                        form="edit-bill-form"
                                         className="btn btn-primary"
-                                        onClick={handleUpdate}
                                     >
                                         Save Changes
                                     </button>
