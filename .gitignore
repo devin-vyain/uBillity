@@ -58,11 +58,15 @@ cover/
 # Django stuff:
 *.log
 local_settings.py
+.env
+.env.*
+!.env.example
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-wal
 *.sqlite3-shm
 backups/
+uBillity/staticfiles/
 
 # Flask stuff:
 instance/
