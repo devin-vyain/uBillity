@@ -8,9 +8,7 @@ def create_household_and_assign(apps, schema_editor):
 
     household, _ = Household.objects.get_or_create(name='Household')
 
-    # add your existing user(s) as members — adjust to match your actual username
-    your_user = User.objects.get(username='dvyain')
-    household.members.add(your_user)
+    household.members.add(*User.objects.all())
 
     Bill.objects.all().update(household=household)
 

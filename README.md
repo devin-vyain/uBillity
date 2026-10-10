@@ -3,29 +3,32 @@ uBillity is a bill and income tracking app that I created because none of the ap
 
 It's a Single Page Application (SPA) with a fast Django backend and modern React frontend (w/ Bootstrap 5). This is a passion project, learning endeavor, and work in progress. Feel free to setup locally and submit Pull Requests, or just fork this repository and make it your own.
 
-Development setup instructions will be coming in the near term, and I personally plan to deploy uBillity to a production server and build a CI/CD pipeline as well
-
 ## Dev Setup
-### Clone the repository
-```
-cd /your/directory/for/code
-git clone https://github.com/devin-vyain/uBillity.git
-```
+### Backend
+From the repository root, create and activate a virtual environment, install dependencies, then apply the committed migrations. Django creates the local SQLite database file automatically.
 
-### Run the backend api server via the following steps:
-```
-cd uBillity\uBillity
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+cd uBillity
+python manage.py migrate
+python manage.py createsuperuser
 python manage.py runserver
 ```
-Access the api via [127.0.0.1:8000/api/](url) (may differ based on localhost configuration)
 
+Open the API at <http://127.0.0.1:8000/api/>. The SQLite database is local application state and is not committed; migration files in `app/migrations/` define and build the schema.
 
-### Run the frontend server via the following steps:
-```
-cd uBillity\uBillity\frontend
+### Frontend
+In a second terminal, from the repository root:
+
+```powershell
+cd uBillity\frontend
+npm install
 npm run dev
 ```
-Access the frontend via [http://localhost:5173/](url) (may differ based on localhost configuration)
+
+Open the frontend at <http://localhost:5173/>.
 
 ## Dev Flow
 ```
