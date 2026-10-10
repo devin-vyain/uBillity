@@ -320,8 +320,6 @@ const EditForm = ({ editForm, setEditForm, editSeries, setEditSeries, editError,
 };
 
 
-const debug = true
-
 const TRANSACTION_TYPES = [
     { value: '', label: '-- Select Type --' },
     { value: 'asset', label: 'Asset' },
@@ -478,7 +476,6 @@ function BillAppContent() {
     };
 
     const clearFilter = () => {
-        debug && console.log("Clearing date filters!")
         setStartDate('');
         setEndDate('');
         setSelectedTypeFilter('');
@@ -781,7 +778,6 @@ function BillAppContent() {
         };
 
         try {
-            debug && console.log('Recurrence value submitting:', form.recurrence);
             await api.post('bills/', cleanedForm);
             setForm({
                 name: '',

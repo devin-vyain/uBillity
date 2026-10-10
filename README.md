@@ -30,6 +30,24 @@ npm run dev
 
 Open the frontend at <http://localhost:5173/>.
 
+## Production Configuration
+The project keeps SQLite as its default. If deploying with SQLite, set `DJANGO_SQLITE_PATH` to a file on persistent storage and run only one application instance; an ephemeral filesystem or multiple app instances can lose or conflict over database writes.
+
+Configure these environment variables in the hosting provider before starting Django:
+
+- `DJANGO_DEBUG=False`
+- `DJANGO_SECRET_KEY` to a newly generated, private key
+- `DJANGO_ALLOWED_HOSTS` to comma-separated backend host names, without schemes
+- `CORS_ALLOWED_ORIGINS` to comma-separated frontend origins, including `https://`
+- `CSRF_TRUSTED_ORIGINS` to the origins allowed to submit Django-protected requests
+- `DJANGO_SECURE_SSL_REDIRECT=True` is enabled by default when `DJANGO_DEBUG=False`; configure the hosting proxy to forward HTTPS correctly
+- `DJANGO_TRUST_X_FORWARDED_PROTO=True` only when a trusted proxy strips client-supplied `X-Forwarded-Proto` and sets it itself
+- `DJANGO_SECURE_HSTS_SECONDS=31536000` only after HTTPS is working reliably
+
+Run `python manage.py migrate` and `python manage.py collectstatic` during deployment. Build the frontend with `VITE_API_BASE_URL` set to the backend API base URL, for example `https://api.example.com/api/`. Vite embeds this value into the build, so set it before `npm run build`. Keep secrets in the hosting provider's secret store, not in Git or frontend variables.
+
+Before exposing the app publicly, run `python manage.py check --deploy` with the production environment configured. This configuration is a starting point, not a substitute for a deployment-specific review of HTTPS proxy settings, backups, monitoring, and authentication/token storage.
+
 ## Dev Flow
 ```
 git checkout -b your-feature-branch

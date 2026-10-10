@@ -11,6 +11,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,13 +22,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-d12z3e3*v43%5hkdkbqn7v1i2ok=++py%+szz^e&*ymfougb48'
+def env_bool(name, default=False):
+    return os.environ.get(name, str(default)).strip().lower() in {'1', 'true', 'yes', 'on'}
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-ALLOWED_HOSTS = []
+def env_list(name, default=()):
+    value = os.environ.get(name)
+    values = value.split(',') if value is not None else default
+    return [item.strip() for item in values if item.strip()]
+
+
+DEBUG = env_bool('DJANGO_DEBUG', True)
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is false.')
+    SECRET_KEY = 'django-insecure-local-development-only-key'
+
+ALLOWED_HOSTS = env_list(
+    'DJANGO_ALLOWED_HOSTS',
+    ('localhost', '127.0.0.1', '[::1]') if DEBUG else (),
+)
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ImproperlyConfigured('DJANGO_ALLOWED_HOSTS must contain the production host names.')
 
 
 # Application definition
@@ -47,10 +66,14 @@ INSTALLED_APPS = [
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
 CRISPY_TEMPLATE_PACK = "bootstrap5"
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = env_list(
+    'CORS_ALLOWED_ORIGINS',
+    ('http://localhost:5173', 'http://127.0.0.1:5173') if DEBUG else (),
+)
+CSRF_TRUSTED_ORIGINS = env_list(
+    'CSRF_TRUSTED_ORIGINS',
+    ('http://localhost:5173', 'http://127.0.0.1:5173') if DEBUG else (),
+)
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -98,7 +121,7 @@ WSGI_APPLICATION = 'uBillity.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'ubillity.sqlite3',
+        'NAME': os.environ.get('DJANGO_SQLITE_PATH', BASE_DIR / 'ubillity.sqlite3'),
     }
 }
 
@@ -138,6 +161,18 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', not DEBUG)
+if env_bool('DJANGO_TRUST_X_FORWARDED_PROTO', False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
