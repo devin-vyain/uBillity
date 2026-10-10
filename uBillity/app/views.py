@@ -123,6 +123,8 @@ class BillViewSet(viewsets.ModelViewSet):
                     household=bill.household, created_by=bill.created_by,
                 ))
             Bill.objects.bulk_create(future_instances)
+
+    @action(detail=False, methods=['put'], url_path=r'series/(?P<recurrence_id>[^/.]+)')
     def update_series(self, request, recurrence_id=None):
         bills = list(self.get_queryset().filter(recurrence_id=recurrence_id))
         if not bills:
