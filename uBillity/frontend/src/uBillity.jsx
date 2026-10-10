@@ -408,8 +408,8 @@ function BillAppContent() {
 
     const [showReconciled, setShowReconciled] = useState(false);
     const [showFiltersPanel, setShowFiltersPanel] = useState(true);
-    const [selectedTypeFilter, setSelectedTypeFilter] = useState('');
-    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState([]);
+    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const handleToggleReconciled = async (bill) => {
         if (!bill || typeof bill !== 'object' || !bill.id) {
@@ -478,8 +478,8 @@ function BillAppContent() {
     const clearFilter = () => {
         setStartDate('');
         setEndDate('');
-        setSelectedTypeFilter('');
-        setSelectedCategoryFilter('');
+        setSelectedTypeFilter([]);
+        setSelectedCategoryFilter([]);
         setSearchTerm('');
     };
 
@@ -507,10 +507,11 @@ function BillAppContent() {
         const beforeEnd = !endDate || billDate <= new Date(endDate);
         return afterStart && beforeEnd;
     });
+    const unreconciledByDate = filteredByDate.filter(bill => !bill.reconciled);
 
     const filteredBySearchAndMeta = filteredByDate.filter(bill => {
-        const matchesType = !selectedTypeFilter || bill.type === selectedTypeFilter;
-        const matchesCategory = !selectedCategoryFilter || bill.category === selectedCategoryFilter;
+        const matchesType = selectedTypeFilter.length === 0 || selectedTypeFilter.includes(bill.type);
+        const matchesCategory = selectedCategoryFilter.length === 0 || selectedCategoryFilter.includes(bill.category);
         const query = searchTerm.trim().toLowerCase();
         const searchableText = [
             bill.name || '',
@@ -523,9 +524,8 @@ function BillAppContent() {
         return matchesType && matchesCategory && matchesSearch;
     });
 
-    const pieChartSource = useMemo(() => {
-        return showReconciled ? filteredBySearchAndMeta : filteredBySearchAndMeta.filter(bill => !bill.reconciled);
-    }, [filteredBySearchAndMeta, showReconciled]);
+    const activeFilteredBills = filteredBySearchAndMeta.filter(bill => !bill.reconciled);
+    const pieChartSource = activeFilteredBills;
 
     // Always apply the date filter; when reconciled bills are hidden,
     // filter the already date-filtered list by reconciled status.
@@ -580,37 +580,28 @@ function BillAppContent() {
                 return 'bg-light text-dark'; // fallback
         }
     };
-    //Logs for filteredByDate array
-    // debug && console.log('filteredByDate:', filteredByDate);
-
-    const totalLiability = filteredByDate
+    const totalLiability = unreconciledByDate
         .filter(bill => bill.type === 'liability')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
-    const totalIncome = filteredByDate
+    const totalIncome = unreconciledByDate
         .filter(bill => bill.type === 'income')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
-    //Assets are not currently removed from KPIs when they are reconciled
-    //Assets should be handled outside of this CRUD paradigm, probably
-    const totalAsset = filteredByDate
+    const totalAsset = unreconciledByDate
         .filter(bill => bill.type === 'asset')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
-    const totalExpense = filteredByDate
+    const totalExpense = unreconciledByDate
         .filter(bill => bill.type === 'expense')
         .reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
 
     const netTotal = totalAsset + totalIncome - totalLiability - totalExpense
-    // Compute running net total data for the chart.
-    // IMPORTANT: Always exclude reconciled bills from the forecast/chart.
-    // Memoized so it only recomputes when the filtered bills actually change.
+    const endingBalance = netTotal
     const runningNetTotalData = useMemo(() => {
         const netTotalByDate = {};
 
-        const billsForChart = filteredByDate.filter(b => !b.reconciled);
-
-        billsForChart.forEach(bill => {
+        activeFilteredBills.forEach(bill => {
             const dateKey = bill.due_date;
             const amount = parseFloat(bill.amount) || 0;
 
@@ -658,15 +649,11 @@ function BillAppContent() {
                 transactions: entry.transactions, // carried through for the tooltip
             };
         });
-    }, [filteredByDate]);
-
-    const lastBalance = runningNetTotalData.length > 0
-        ? runningNetTotalData[runningNetTotalData.length - 1].balance
-        : netTotal;
+    }, [activeFilteredBills]);
 
     const displayDateRangeText = (!startDate && !endDate)
         ? 'Showing all dates'
-        : `Showing dates ${startDate ? new Date(startDate).toLocaleDateString('en-US') : ''}${startDate && endDate ? ' - ' : ''}${endDate ? new Date(endDate).toLocaleDateString('en-US') : ''}`;
+        : `Showing dates ${startDate ? format(parseISO(startDate), 'MM/dd/yyyy') : ''}${startDate && endDate ? ' - ' : ''}${endDate ? format(parseISO(endDate), 'MM/dd/yyyy') : ''}`;
 
     const handleChange = e => {
         setForm({ ...form, [e.target.name]: e.target.value });
@@ -963,7 +950,7 @@ function BillAppContent() {
                                         <div className="card text-white bg-dark h-100 text-center" style={{ minHeight: '90px' }}>
                                             <div className="card-body d-flex flex-column justify-content-center" style={{ padding: '0.55rem 0.4rem' }}>
                                                 <h6 className="card-title mb-1" style={{ fontSize: '1.3rem' }}>Ending Balance</h6>
-                                                <p className="card-text fs-5 fw-semibold mb-0">${lastBalance.toFixed(2)}</p>
+                                                <p className="card-text fs-5 fw-semibold mb-0">${endingBalance.toFixed(2)}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -1273,67 +1260,6 @@ function BillAppContent() {
                             </div>
 
                             <div className="mb-3">
-                                <label className="form-label">Type</label>
-                                <select
-                                    className="form-select"
-                                    value={selectedTypeFilter}
-                                    onChange={(e) => setSelectedTypeFilter(e.target.value)}
-                                >
-                                    <option value="">All Types</option>
-                                    {TRANSACTION_TYPES.filter(opt => opt.value).map(opt => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="mb-3">
-                                <label className="form-label">Category</label>
-                                <select
-                                    className="form-select"
-                                    value={selectedCategoryFilter}
-                                    onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-                                >
-                                    <option value="">All Categories</option>
-                                    {TRANSACTION_CATEGORIES.filter(opt => opt.value).map(opt => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="mb-3">
-                                <label className="form-label">Sort</label>
-                                <div className="input-group">
-                                    <select
-                                        className="form-select"
-                                        value={sortField}
-                                        onChange={(e) => setSortField(e.target.value)}
-                                    >
-                                        <option value="due_date">Due Date</option>
-                                        <option value="amount">Cost</option>
-                                        <option value="date_added">Date Added</option>
-                                    </select>
-                                    <button
-                                        type="button"
-                                        className="btn btn-outline-secondary"
-                                        title={sortAsc ? 'Sort descending' : 'Sort ascending'}
-                                        onClick={() => setSortAsc(prev => !prev)}
-                                    >
-                                        <i className={`bi ${sortAsc ? 'bi-sort-up' : 'bi-sort-down'}`}></i>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="mb-3">
-                                <button
-                                    type="button"
-                                    className={`btn btn-sm w-100 ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
-                                    onClick={() => setShowReconciled(prev => !prev)}
-                                >
-                                    {showReconciled ? 'Hide Reconciled' : 'Show Reconciled'}
-                                </button>
-                            </div>
-
-                            <div className="mb-3">
                                 <label className="form-label">Start Date</label>
                                 <div style={{ position: 'relative' }}>
                                     <input
@@ -1386,7 +1312,89 @@ function BillAppContent() {
                             <div className="d-flex flex-wrap gap-2">
                                 <button className="btn btn-sm btn-outline-primary" onClick={() => setDateRange(30)} type="button">Next 30 Days</button>
                                 <button className="btn btn-sm btn-outline-primary" onClick={() => setDateRange(60)} type="button">Next 60 Days</button>
+                                <button className="btn btn-sm btn-outline-primary" onClick={() => setDateRange(90)} type="button">Next 90 Days</button>
                                 <button className="btn btn-sm btn-outline-success" onClick={filterUntilNextIncome} type="button">Until Next Income</button>
+                            </div>
+
+                            <div className="mb-3 mt-3">
+                                <button
+                                    type="button"
+                                    className={`btn btn-sm w-100 ${showReconciled ? 'btn-primary' : 'btn-outline-primary'}`}
+                                    onClick={() => setShowReconciled(prev => !prev)}
+                                >
+                                    {showReconciled ? 'Hide Reconciled' : 'Show Reconciled'}
+                                </button>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Sort</label>
+                                <div className="input-group">
+                                    <select
+                                        className="form-select"
+                                        value={sortField}
+                                        onChange={(e) => setSortField(e.target.value)}
+                                    >
+                                        <option value="due_date">Due Date</option>
+                                        <option value="amount">Cost</option>
+                                        <option value="date_added">Date Added</option>
+                                    </select>
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline-secondary"
+                                        title={sortAsc ? 'Sort descending' : 'Sort ascending'}
+                                        onClick={() => setSortAsc(prev => !prev)}
+                                    >
+                                        <i className={`bi ${sortAsc ? 'bi-sort-up' : 'bi-sort-down'}`}></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Type</label>
+                                <div>
+                                    {TRANSACTION_TYPES.filter(opt => opt.value).map(opt => (
+                                        <div className="form-check" key={opt.value}>
+                                            <input
+                                                className="form-check-input"
+                                                type="checkbox"
+                                                id={`type-filter-${opt.value}`}
+                                                checked={selectedTypeFilter.includes(opt.value)}
+                                                onChange={(e) => setSelectedTypeFilter(current => (
+                                                    e.target.checked
+                                                        ? [...current, opt.value]
+                                                        : current.filter(value => value !== opt.value)
+                                                ))}
+                                            />
+                                            <label className="form-check-label" htmlFor={`type-filter-${opt.value}`}>
+                                                {opt.label}
+                                            </label>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="form-label">Category</label>
+                                <div>
+                                    {TRANSACTION_CATEGORIES.filter(opt => opt.value).map(opt => (
+                                        <div className="form-check" key={opt.value}>
+                                            <input
+                                                className="form-check-input"
+                                                type="checkbox"
+                                                id={`category-filter-${opt.value}`}
+                                                checked={selectedCategoryFilter.includes(opt.value)}
+                                                onChange={(e) => setSelectedCategoryFilter(current => (
+                                                    e.target.checked
+                                                        ? [...current, opt.value]
+                                                        : current.filter(value => value !== opt.value)
+                                                ))}
+                                            />
+                                            <label className="form-check-label" htmlFor={`category-filter-${opt.value}`}>
+                                                {opt.label}
+                                            </label>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </aside>
                     </div>
